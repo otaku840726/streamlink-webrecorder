@@ -15,6 +15,7 @@ import sys
 from fastapi.responses import FileResponse, StreamingResponse
 import shutil
 from fastapi.staticfiles import StaticFiles
+import psutil
 
 
 HLS_DIR = "/hls"
@@ -137,24 +138,24 @@ def record_stream(task):
         active_recordings.pop(task.id, None)
 
 def add_job(task: Task):
-    job_id = task.id
+    stop_hls_stream(task.id)  # 保險先停
     try:
-        scheduler.remove_job(job_id)
+        scheduler.remove_job(task.id)
     except Exception:
         pass
     scheduler.add_job(
         record_stream,
         trigger=IntervalTrigger(minutes=task.interval),
         args=[task],
-        id=job_id,
+        id=task.id,
         replace_existing=True,
         next_run_time=datetime.now()
     )
-    # 啟動 HLS
     if getattr(task, "hls_enable", False):
         start_hls_stream(task)
     else:
         stop_hls_stream(task.id)
+
 
 
 def remove_job(job_id):
@@ -207,9 +208,25 @@ def stop_hls_stream(task_id):
             if proc and proc.poll() is None:
                 try:
                     proc.terminate()
+                    proc.wait(timeout=5)
                 except Exception:
-                    pass
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
         hls_processes.pop(task_id, None)
+
+    # 強制殺光所有殘留 ffmpeg/streamlink（保險起見）
+    # 找所有 ffmpeg/streamlink，有參數指到該目錄就砍掉
+    for p in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            if ('ffmpeg' in p.info['name'] or 'streamlink' in p.info['name']) and \
+                any(task_id in str(x) for x in p.info['cmdline']):
+                print(f"Kill leftover process: {p.info['pid']} {p.info['cmdline']}")
+                p.kill()
+        except Exception:
+            pass
+
 
 @app.on_event("startup")
 def startup_event():
