@@ -263,5 +263,10 @@ def handle_shutdown(signum, frame):
                 pass
     sys.exit(0)
 
+@app.get("/active_recordings")
+def get_active_recordings():
+    # 回傳目前有在錄影的 task id 列表
+    return list(active_recordings.keys())
+    
 signal.signal(signal.SIGTERM, handle_shutdown)
 signal.signal(signal.SIGINT, handle_shutdown)
