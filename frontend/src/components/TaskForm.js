@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -9,20 +9,27 @@ import {
 } from "@mui/material";
 import api from "../api";
 
+const defaultForm = {
+  name: "",
+  url: "",
+  interval: 5,
+  save_dir: "",
+  params: "",
+};
+
 export default function TaskForm({ open, task, onClose }) {
-  const isEdit = !!task;
-  const [form, setForm] = useState(
-    task || {
-      name: "",
-      url: "",
-      interval: 5,
-      save_dir: "",
-      params: "",
-    }
-  );
+  const [form, setForm] = useState(defaultForm);
+
+  // 每次 task 或 open 改變時自動同步 form 內容
+  useEffect(() => {
+    if (task) setForm(task);
+    else setForm(defaultForm);
+  }, [task, open]);
 
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+    let { name, value } = e.target;
+    if (name === "interval") value = parseInt(value, 10) || 1;
+    setForm((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async () => {
@@ -30,17 +37,20 @@ export default function TaskForm({ open, task, onClose }) {
       alert("所有欄位皆必填！");
       return;
     }
-    if (isEdit) {
+    if (task && task.id) {
+      // 編輯
       await api.updateTask({ ...form, id: task.id });
     } else {
-      await api.createTask({ ...form, id: undefined });
+      // 新增（不要帶 id）
+      const { id, ...body } = form;
+      await api.createTask(body);
     }
     onClose();
   };
 
   return (
     <Dialog open={open} onClose={onClose}>
-      <DialogTitle>{isEdit ? "編輯任務" : "新增任務"}</DialogTitle>
+      <DialogTitle>{task ? "編輯任務" : "新增任務"}</DialogTitle>
       <DialogContent>
         <TextField
           autoFocus
@@ -89,7 +99,7 @@ export default function TaskForm({ open, task, onClose }) {
       <DialogActions>
         <Button onClick={onClose}>取消</Button>
         <Button onClick={handleSubmit} variant="contained">
-          {isEdit ? "儲存" : "新增"}
+          {task ? "儲存" : "新增"}
         </Button>
       </DialogActions>
     </Dialog>
