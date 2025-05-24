@@ -9,34 +9,47 @@ export default function VideoPlayer({ url, onClose }) {
 
   useEffect(() => {
     const video = videoRef.current;
-    // 清理前一次的 hls
+
+    // 清理上一個 Hls 實例
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
-    // 支援 m3u8 + Hls.js
+
+    // 只針對 m3u8 用 Hls.js
     if (url && url.endsWith(".m3u8") && Hls.isSupported()) {
       const hls = new Hls();
       hls.loadSource(url);
       hls.attachMedia(video);
-      hls.on(Hls.Events.ERROR, (event, data) => {
-        if (data.fatal) hls.destroy();
-      });
       hlsRef.current = hls;
-    } else if (video && url) {
-      video.src = url;
-      video.load();
+
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) {
+          hls.destroy();
+        }
+      });
     }
+    // mp4/ts 只靠 React 控制 src 屬性即可
+
+    // 清理
     return () => {
-      if (hlsRef.current) hlsRef.current.destroy();
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
     };
   }, [url]);
+
+  // 若是 m3u8 不設 src，其餘直接設
+  const isHls = url && url.endsWith(".m3u8");
+  const videoSrc = isHls ? undefined : url || "";
 
   return (
     <Dialog open={!!url} onClose={onClose} fullWidth maxWidth="md">
       <div style={{ position: "relative", background: "#000" }}>
         <video
           ref={videoRef}
+          src={videoSrc}
           style={{ width: "100%", height: "100%" }}
           controls
           autoPlay
