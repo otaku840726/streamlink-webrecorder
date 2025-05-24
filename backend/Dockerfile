@@ -4,8 +4,13 @@ WORKDIR /app
 
 # 安裝必要套件
 RUN apt-get update && \
-    apt-get install -y ffmpeg curl && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y ffmpeg curl python3-pip python3-setuptools python3-wheel python3-dev \
+    && apt-get install -y gnupg2 \
+    && curl -s https://streamlink.github.io/latest-packages/debian/pubkey.asc | apt-key add - \
+    && echo "deb https://streamlink.github.io/latest-packages/debian/ ./ " > /etc/apt/sources.list.d/streamlink.list \
+    && apt-get update \
+    && apt-get install -y streamlink \
+    && rm -rf /var/lib/apt/lists/*
 
 # 安裝 python 相依
 COPY requirements.txt .
