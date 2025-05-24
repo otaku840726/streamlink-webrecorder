@@ -8,6 +8,7 @@ services:
     volumes:
       - ./data:/data
       - ./recordings:/recordings
+      - ./hls:/hls
     restart: unless-stopped
 
   frontend:
