@@ -10,6 +10,7 @@ from typing import List, Optional
 import subprocess
 from uuid import uuid4
 from datetime import datetime
+from typing import Optional  # ← 記得補 import
 
 DATA_DIR = "/data"
 RECORDINGS_DIR = "/recordings"
@@ -33,7 +34,7 @@ app.add_middleware(
 lock = threading.Lock()
 
 class Task(BaseModel):
-    id: str
+    id: Optional[str] = None
     name: str
     url: str
     interval: int
