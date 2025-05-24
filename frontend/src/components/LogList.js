@@ -4,8 +4,9 @@ import api from "../api";
 
 const eventColor = (event) => {
   if (event === "error") return "red";
-  if (event === "end") return "green";
-  return "gray";
+  if (event === "end" || event === "mp4") return "green";
+  if (event === "no_stream") return "gray";
+  return "black";
 };
 
 export default function LogList({ task }) {
@@ -20,14 +21,14 @@ export default function LogList({ task }) {
   }, [task.id]);
 
   return (
-    <Box sx={{ my: 2 }}>
+    <Box sx={{ my: 2, overflowX: "auto" }}>
       <Typography variant="h6">執行紀錄 - {task.name}</Typography>
       <List dense>
         {logs.map((log, idx) => (
           <ListItem key={idx}>
             <ListItemText
               primary={
-                <span style={{ color: eventColor(log.event) }}>
+                <span style={{ color: eventColor(log.event), fontSize: 14 }}>
                   [{new Date(log.time).toLocaleString()}] {log.event}
                   {log.msg ? ` | ${log.msg}` : ""}
                 </span>
