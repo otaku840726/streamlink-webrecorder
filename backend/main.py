@@ -221,10 +221,8 @@ def get_recording(task_id: str, filename: str):
     file_path = os.path.join(save_dir, filename)
     if not os.path.exists(file_path):
         raise HTTPException(404)
-    def iterfile():
-        with open(file_path, mode="rb") as file_like:
-            yield from file_like
-    return Response(iterfile(), media_type="video/mp2t")
+    # 這裡直接用 FileResponse，支援影音串流、斷點續傳
+    return FileResponse(file_path, media_type="video/mp2t", filename=filename)
 
 @app.delete("/tasks/{task_id}/recordings/{filename}")
 def delete_recording(task_id: str, filename: str):
