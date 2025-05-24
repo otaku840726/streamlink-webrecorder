@@ -84,6 +84,23 @@ def read_logs(task_id):
     with open(logfile, "r") as f:
         return [json.loads(line) for line in f]
 
+def ts_to_mp4(ts_file):
+    import os
+    import subprocess
+    if not os.path.exists(ts_file):
+        return None
+    mp4_file = ts_file.rsplit('.', 1)[0] + ".mp4"
+    ffmpeg_cmd = [
+        "ffmpeg", "-y", "-i", ts_file, "-c", "copy", mp4_file
+    ]
+    try:
+        subprocess.run(ffmpeg_cmd, capture_output=True, check=True)
+        os.remove(ts_file)  # 只留 mp4
+        return mp4_file
+    except Exception as e:
+        print(f"MP4 conversion failed: {e}")
+        return None
+        
 # ========== 重點1：全域進程表 ==========
 active_recordings = {}
 
@@ -136,6 +153,8 @@ def record_stream(task):
     finally:
         # ========== 錄影結束自動移除進程 ==========
         active_recordings.pop(task.id, None)
+        if os.path.exists(out_file):
+            ts_to_mp4(out_file)
 
 def add_job(task: Task):
     stop_hls_stream(task.id)  # 保險先停
@@ -330,6 +349,17 @@ def stop_recording(task_id: str):
     if proc and proc.poll() is None:
         proc.terminate()
         write_log(task_id, "manual_stop", "User requested stop")
+        # 轉檔流程
+        tasks = get_tasks()
+        t = next((x for x in tasks if x["id"] == task_id), None)
+        if not t:
+            return {"ok": False, "msg": "Task not found"}
+        save_dir = os.path.join(RECORDINGS_DIR, t["save_dir"].strip("/"))
+        ts_files = [f for f in os.listdir(save_dir) if f.endswith(".ts")]
+        if ts_files:
+            latest_ts = max(ts_files, key=lambda f: os.path.getmtime(os.path.join(save_dir, f)))
+            ts_file_path = os.path.join(save_dir, latest_ts)
+            ts_to_mp4(ts_file_path)
         return {"ok": True, "msg": "Stopped"}
     return {"ok": False, "msg": "No active recording"}
 
