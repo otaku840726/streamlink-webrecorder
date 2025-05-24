@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+apscheduler
+pydantic
+python-multipart
+aiofiles
+streamlink
