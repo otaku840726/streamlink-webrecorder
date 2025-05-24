@@ -4,7 +4,7 @@ services:
     build: ./backend
     container_name: streamlink-web-backend
     ports:
-      - "8800:8800"
+      - "13052:8800"
     volumes:
       - ./data:/data
       - ./recordings:/recordings
@@ -15,7 +15,7 @@ services:
     build: ./frontend
     container_name: streamlink-web-frontend
     ports:
-      - "8080:80"
+      - "13053:80"
     depends_on:
       - backend
     restart: unless-stopped
