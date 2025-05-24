@@ -1,5 +1,5 @@
 import axios from "axios";
-const API = process.env.REACT_APP_API || "http://localhost:8800";
+const API = process.env.REACT_APP_API || "";
 
 const api = {
   async listTasks() {
