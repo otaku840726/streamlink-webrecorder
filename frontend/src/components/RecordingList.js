@@ -19,15 +19,15 @@ export default function RecordingList({ task }) {
   }, [task.id]);
 
   return (
-    <Box sx={{ my: 2 }}>
+    <Box sx={{ my: 2, overflowX: "auto" }}>
       <Typography variant="h6">錄影清單 - {task.name}</Typography>
       <Table size="small">
         <TableHead>
           <TableRow>
-            <TableCell>檔案名稱</TableCell>
-            <TableCell>大小(MB)</TableCell>
-            <TableCell>錄影時間</TableCell>
-            <TableCell>操作</TableCell>
+            <TableCell sx={{ minWidth: 140 }}>檔案名稱</TableCell>
+            <TableCell sx={{ minWidth: 80 }}>大小(MB)</TableCell>
+            <TableCell sx={{ minWidth: 140 }}>錄影時間</TableCell>
+            <TableCell sx={{ minWidth: 160 }}>操作</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -42,7 +42,7 @@ export default function RecordingList({ task }) {
                   onClick={() => setPlayFile(rec.file)}
                   sx={{ mr: 1 }}
                 >
-                  撥放
+                  播放
                 </Button>
                 <Button
                   size="small"
