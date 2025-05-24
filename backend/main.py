@@ -12,6 +12,8 @@ from uuid import uuid4
 from datetime import datetime
 import signal
 import sys
+from fastapi.responses import FileResponse
+
 
 DATA_DIR = "/data"
 RECORDINGS_DIR = "/recordings"
