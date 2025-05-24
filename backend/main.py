@@ -43,6 +43,7 @@ class Task(BaseModel):
     interval: int
     save_dir: str
     params: Optional[str] = ""
+    hls_enable: Optional[bool] = False  # <--- 新增
 
 def get_tasks():
     if not os.path.exists(TASKS_FILE):
