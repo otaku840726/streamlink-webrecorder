@@ -28,6 +28,9 @@ const api = {
     const r = await axios.get(`${API}/tasks/${taskId}/logs`);
     return r.data;
   },
+  async stopRecording(taskId) {
+    await axios.post(`/tasks/${taskId}/stop`);
+  },
 };
 
 export default api;
