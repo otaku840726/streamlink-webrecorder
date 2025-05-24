@@ -1,0 +1,70 @@
+import React, { useState, useEffect } from "react";
+import { Container, Typography, Box, Button } from "@mui/material";
+import TaskList from "./components/TaskList";
+import TaskForm from "./components/TaskForm";
+import RecordingList from "./components/RecordingList";
+import LogList from "./components/LogList";
+import api from "./api";
+
+export default function App() {
+  const [tasks, setTasks] = useState([]);
+  const [selectedTask, setSelectedTask] = useState(null);
+  const [tab, setTab] = useState("tasks");
+  const [openForm, setOpenForm] = useState(false);
+
+  const reloadTasks = async () => {
+    setTasks(await api.listTasks());
+  };
+
+  useEffect(() => {
+    reloadTasks();
+    // 定時刷新
+    const timer = setInterval(() => reloadTasks(), 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <Container>
+      <Box sx={{ py: 3 }}>
+        <Typography variant="h4" gutterBottom>
+          Streamlink Web Recorder Manager
+        </Typography>
+        <Button
+          variant="contained"
+          onClick={() => setOpenForm(true)}
+          sx={{ mb: 2 }}
+        >
+          新增任務
+        </Button>
+        <TaskList
+          tasks={tasks}
+          onSelectTask={(task) => {
+            setSelectedTask(task);
+            setTab("recordings");
+          }}
+          onEditTask={(task) => {
+            setSelectedTask(task);
+            setOpenForm(true);
+          }}
+          onShowLogs={(task) => {
+            setSelectedTask(task);
+            setTab("logs");
+          }}
+          reload={reloadTasks}
+        />
+        <TaskForm
+          open={openForm}
+          task={openForm === true ? null : selectedTask}
+          onClose={() => {
+            setOpenForm(false);
+            reloadTasks();
+          }}
+        />
+        {selectedTask && tab === "recordings" && (
+          <RecordingList task={selectedTask} />
+        )}
+        {selectedTask && tab === "logs" && <LogList task={selectedTask} />}
+      </Box>
+    </Container>
+  );
+}
