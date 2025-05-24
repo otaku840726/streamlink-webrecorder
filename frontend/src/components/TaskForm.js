@@ -20,7 +20,7 @@ const defaultForm = {
 export default function TaskForm({ open, task, onClose }) {
   const [form, setForm] = useState(defaultForm);
 
-  // 每次 task 或 open 改變時自動同步 form 內容
+  // 根據 props.task 及 open 狀態切換內容
   useEffect(() => {
     if (task) setForm(task);
     else setForm(defaultForm);
