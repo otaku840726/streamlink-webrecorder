@@ -1,0 +1,20 @@
+version: '3.8'
+services:
+  backend:
+    build: ./backend
+    container_name: streamlink-web-backend
+    ports:
+      - "8800:8800"
+    volumes:
+      - ./data:/data
+      - ./recordings:/recordings
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: streamlink-web-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
