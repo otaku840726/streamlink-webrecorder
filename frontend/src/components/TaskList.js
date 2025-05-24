@@ -5,22 +5,22 @@ import {
 
 export default function TaskList({ tasks, onSelectTask, onEditTask, onShowLogs, reload }) {
   return (
-    <Box sx={{ my: 2 }}>
+    <Box sx={{ my: 2, overflowX: "auto" }}>
       <Table size="small">
         <TableHead>
           <TableRow>
-            <TableCell>名稱</TableCell>
-            <TableCell>URL</TableCell>
-            <TableCell>間隔(分鐘)</TableCell>
-            <TableCell>保存路徑</TableCell>
-            <TableCell>操作</TableCell>
+            <TableCell sx={{ minWidth: 80 }}>名稱</TableCell>
+            <TableCell sx={{ minWidth: 180 }}>URL</TableCell>
+            <TableCell sx={{ minWidth: 80 }}>間隔(分鐘)</TableCell>
+            <TableCell sx={{ minWidth: 100 }}>保存路徑</TableCell>
+            <TableCell sx={{ minWidth: 180 }}>操作</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {tasks.map((t) => (
             <TableRow key={t.id}>
               <TableCell>{t.name}</TableCell>
-              <TableCell sx={{ maxWidth: 250, wordBreak: "break-all" }}>{t.url}</TableCell>
+              <TableCell sx={{ maxWidth: 180, wordBreak: "break-all" }}>{t.url}</TableCell>
               <TableCell>{t.interval}</TableCell>
               <TableCell>{t.save_dir}</TableCell>
               <TableCell>
