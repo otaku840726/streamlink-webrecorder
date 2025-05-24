@@ -6,6 +6,8 @@ import {
   TextField,
   DialogActions,
   Button,
+  FormControlLabel,
+  Checkbox
 } from "@mui/material";
 import api from "../api";
 
@@ -15,19 +17,20 @@ const defaultForm = {
   interval: 5,
   save_dir: "",
   params: "",
+  hls_enable: false,      // <--- 新增
 };
 
 export default function TaskForm({ open, task, onClose }) {
   const [form, setForm] = useState(defaultForm);
 
-  // 根據 props.task 及 open 狀態切換內容
   useEffect(() => {
-    if (task) setForm(task);
+    if (task) setForm({ ...defaultForm, ...task });
     else setForm(defaultForm);
   }, [task, open]);
 
   const handleChange = (e) => {
-    let { name, value } = e.target;
+    let { name, value, type, checked } = e.target;
+    if (type === "checkbox") value = checked;
     if (name === "interval") value = parseInt(value, 10) || 1;
     setForm((prev) => ({ ...prev, [name]: value }));
   };
@@ -88,19 +91,27 @@ export default function TaskForm({ open, task, onClose }) {
         />
         <TextField
           margin="dense"
-          label="Streamlink 參數（選填）"
+          label="streamlink 參數 (選填)"
           name="params"
           value={form.params}
           onChange={handleChange}
           fullWidth
-          placeholder="例如 --retry-open 1 --retry-streams 10"
+        />
+        <FormControlLabel
+          control={
+            <Checkbox
+              name="hls_enable"
+              checked={!!form.hls_enable}
+              onChange={handleChange}
+              color="primary"
+            />
+          }
+          label="啟用 HLS 串流（直播 m3u8，直播觀看專用）"
         />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>取消</Button>
-        <Button onClick={handleSubmit} variant="contained">
-          {task ? "儲存" : "新增"}
-        </Button>
+        <Button onClick={handleSubmit}>儲存</Button>
       </DialogActions>
     </Dialog>
   );
