@@ -9,6 +9,7 @@ export default function RecordingList({ task }) {
   const [playUrl, setPlayUrl] = useState(null);
   const [isActive, setIsActive] = useState(false);
 
+  // 載入錄影清單和當前錄影狀態
   const reload = async () => {
     setRecordings(await api.listRecordings(task.id));
     try {
@@ -23,9 +24,9 @@ export default function RecordingList({ task }) {
     reload();
     const t = setInterval(reload, 5000);
     return () => clearInterval(t);
+    // eslint-disable-next-line
   }, [task.id]);
 
-  // 視窗中播放哪個檔案（用 playUrl 來辨識不同類型串流）
   const handlePlay = (url, file) => {
     setPlayUrl(url);
     setPlayFile(file);
@@ -40,6 +41,17 @@ export default function RecordingList({ task }) {
             ● 錄影中
           </span>
         )}
+        {/* HLS 直播按鈕（只要任務支援） */}
+        {task.hls_enable && (
+          <Button
+            size="small"
+            color="success"
+            sx={{ ml: 2 }}
+            onClick={() => handlePlay(`/hls/${task.id}/stream.m3u8`, "live")}
+          >
+            直播觀看
+          </Button>
+        )}
       </Typography>
       <Table size="small">
         <TableHead>
@@ -47,7 +59,7 @@ export default function RecordingList({ task }) {
             <TableCell sx={{ minWidth: 140 }}>檔案名稱</TableCell>
             <TableCell sx={{ minWidth: 80 }}>大小(MB)</TableCell>
             <TableCell sx={{ minWidth: 140 }}>錄影時間</TableCell>
-            <TableCell sx={{ minWidth: 220 }}>操作</TableCell>
+            <TableCell sx={{ minWidth: 260 }}>操作</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -57,7 +69,7 @@ export default function RecordingList({ task }) {
               <TableCell>{(rec.size / 1024 / 1024).toFixed(1)}</TableCell>
               <TableCell>{new Date(rec.mtime).toLocaleString()}</TableCell>
               <TableCell>
-                {/* 1. 正在錄影的 TS 檔可以「即時觀看」 */}
+                {/* 1. 正在錄影的 TS 可即時觀看 */}
                 {isActive && rec.file.endsWith('.ts') && (
                   <Button
                     size="small"
@@ -68,7 +80,7 @@ export default function RecordingList({ task }) {
                     即時觀看
                   </Button>
                 )}
-                {/* 2. 所有 TS 檔可「線上轉檔播放」 */}
+                {/* 2. 所有 TS 可「線上轉檔」點播 */}
                 {rec.file.endsWith('.ts') && (
                   <Button
                     size="small"
@@ -111,6 +123,13 @@ export default function RecordingList({ task }) {
                   刪除
                 </Button>
                 {playFile === rec.file && playUrl && (
+                  <VideoPlayer
+                    url={playUrl}
+                    onClose={() => { setPlayFile(null); setPlayUrl(null); }}
+                  />
+                )}
+                {/* 直播觀看專屬視窗 */}
+                {playFile === "live" && playUrl && (
                   <VideoPlayer
                     url={playUrl}
                     onClose={() => { setPlayFile(null); setPlayUrl(null); }}
