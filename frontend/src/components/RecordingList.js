@@ -41,6 +41,36 @@ export default function RecordingList({ task }) {
             ● 錄影中
           </span>
         )}
+        {/* 停止/再錄製按鈕 */}
+        {isActive ? (
+          <Button
+            size="small"
+            color="error"
+            sx={{ ml: 2 }}
+            onClick={async () => {
+              if (window.confirm("確定要停止錄影？")) {
+                await api.stopRecording(task.id);
+                setTimeout(reload, 1000);
+              }
+            }}
+          >
+            停止錄影
+          </Button>
+        ) : (
+          <Button
+            size="small"
+            color="success"
+            sx={{ ml: 2 }}
+            onClick={async () => {
+              if (window.confirm("確定要重新開始錄影？")) {
+                await api.updateTask({ ...task });
+                setTimeout(reload, 1000);
+              }
+            }}
+          >
+            再錄製
+          </Button>
+        )}
         {/* HLS 直播按鈕（只要任務支援） */}
         {task.hls_enable && (
           <Button
