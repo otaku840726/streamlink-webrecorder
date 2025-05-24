@@ -6,16 +6,17 @@ import VideoPlayer from "./VideoPlayer";
 export default function RecordingList({ task }) {
   const [recordings, setRecordings] = useState([]);
   const [playFile, setPlayFile] = useState(null);
-  const [recording, setRecording] = useState(false);
+  const [isActive, setIsActive] = useState(false);
 
-  // 查詢錄影檔
+  // 查詢錄影清單 + 錄影進行中
   const reload = async () => {
     setRecordings(await api.listRecordings(task.id));
-    // 查詢錄影進行狀態（簡單判斷：如有 active_recordings API，建議用它）
-    // 這裡用 log 最後一筆判斷
-    const logs = await api.getLogs(task.id);
-    const last = logs[logs.length - 1];
-    setRecording(last && last.event === "start");
+    try {
+      const active = await api.getActiveRecordings();
+      setIsActive(active.includes(task.id));
+    } catch {
+      setIsActive(false);
+    }
   };
 
   useEffect(() => {
@@ -36,16 +37,21 @@ export default function RecordingList({ task }) {
     <Box sx={{ my: 2, overflowX: "auto" }}>
       <Typography variant="h6">
         錄影清單 - {task.name}
-        {recording && (
-          <Button
-            color="warning"
-            variant="outlined"
-            size="small"
-            sx={{ ml: 2 }}
-            onClick={handleStop}
-          >
-            停止錄影
-          </Button>
+        {isActive && (
+          <>
+            <span style={{ color: "red", marginLeft: 8, fontWeight: "bold" }}>
+              ● 錄影中
+            </span>
+            <Button
+              color="warning"
+              variant="outlined"
+              size="small"
+              sx={{ ml: 2 }}
+              onClick={handleStop}
+            >
+              停止錄影
+            </Button>
+          </>
         )}
       </Typography>
       <Table size="small">
