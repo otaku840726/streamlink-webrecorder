@@ -13,6 +13,10 @@ RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 RUN pip install streamlink
 
+
+RUN mkdir -p /root/.local/share/streamlink/plugins
+COPY stripchat.py /root/.local/share/streamlink/plugins/stripchat.py
+
 COPY . .
 
 EXPOSE 8800
