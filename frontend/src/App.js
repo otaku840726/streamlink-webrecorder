@@ -23,6 +23,13 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  // 彈窗關閉後務必清空 selectedTask，防止下次開啟內容殘留
+  const handleFormClose = () => {
+    setOpenForm(false);
+    setSelectedTask(null);
+    reloadTasks();
+  };
+
   return (
     <Container>
       <Box sx={{ py: 3 }}>
@@ -31,7 +38,10 @@ export default function App() {
         </Typography>
         <Button
           variant="contained"
-          onClick={() => setOpenForm(true)}
+          onClick={() => {
+            setSelectedTask(null);  // 新增時 task = null
+            setOpenForm(true);
+          }}
           sx={{ mb: 2 }}
         >
           新增任務
@@ -54,11 +64,8 @@ export default function App() {
         />
         <TaskForm
           open={openForm}
-          task={openForm === true ? null : selectedTask}
-          onClose={() => {
-            setOpenForm(false);
-            reloadTasks();
-          }}
+          task={selectedTask}
+          onClose={handleFormClose}
         />
         {selectedTask && tab === "recordings" && (
           <RecordingList task={selectedTask} />
