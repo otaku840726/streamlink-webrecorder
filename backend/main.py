@@ -70,11 +70,12 @@ def read_logs(task_id):
     with open(logfile, "r") as f:
         return [json.loads(line) for line in f]
 
-def record_stream(task: Task):
+def record_stream(task):
     save_path = os.path.join(RECORDINGS_DIR, task.save_dir.strip("/"))
     os.makedirs(save_path, exist_ok=True)
     nowstr = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_file = os.path.join(save_path, f"{task.name}_{nowstr}.ts")
+
     base_cmd = [
         "streamlink",
         *(task.params.split() if task.params else []),
@@ -86,12 +87,33 @@ def record_stream(task: Task):
     try:
         proc = subprocess.Popen(base_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = proc.communicate()
+        std_out_msg = stdout.decode("utf-8").strip() if stdout else ""
+        std_err_msg = stderr.decode("utf-8").strip() if stderr else ""
         if proc.returncode == 0:
             write_log(task.id, "end", f"SUCCESS: {out_file}")
+            # --- 自動轉成 MP4 ---
+            try:
+                mp4_file = out_file.rsplit('.', 1)[0] + ".mp4"
+                ffmpeg_cmd = [
+                    "ffmpeg", "-y", "-i", out_file, "-c", "copy", mp4_file
+                ]
+                proc2 = subprocess.run(ffmpeg_cmd, capture_output=True, check=True)
+                write_log(task.id, "mp4", f"MP4 converted: {mp4_file}")
+                # 若你只要保留 mp4，可解註下一行自動刪除 ts
+                # os.remove(out_file)
+            except Exception as e:
+                write_log(task.id, "error", f"MP4 conversion failed: {e}")
         else:
-            write_log(task.id, "error", f"ERROR: {stderr.decode('utf-8')}")
+            # 無論錯誤訊息在哪裡，都抓進 log
+            reason = std_err_msg or std_out_msg or "Unknown"
+            main_line = reason.splitlines()[0] if reason else "Unknown"
+            if "No playable streams found" in reason or "No streams found" in reason:
+                write_log(task.id, "no_stream", f"No live stream: {main_line}")
+            else:
+                write_log(task.id, "error", f"ERROR: {main_line}")
     except Exception as e:
         write_log(task.id, "error", f"EXCEPTION: {str(e)}")
+        
 def add_job(task: Task):
     job_id = task.id
     # 刪除舊job（避免重複）
