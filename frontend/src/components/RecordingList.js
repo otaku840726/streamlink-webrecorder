@@ -6,9 +6,16 @@ import VideoPlayer from "./VideoPlayer";
 export default function RecordingList({ task }) {
   const [recordings, setRecordings] = useState([]);
   const [playFile, setPlayFile] = useState(null);
+  const [recording, setRecording] = useState(false);
 
+  // 查詢錄影檔
   const reload = async () => {
     setRecordings(await api.listRecordings(task.id));
+    // 查詢錄影進行狀態（簡單判斷：如有 active_recordings API，建議用它）
+    // 這裡用 log 最後一筆判斷
+    const logs = await api.getLogs(task.id);
+    const last = logs[logs.length - 1];
+    setRecording(last && last.event === "start");
   };
 
   useEffect(() => {
@@ -18,9 +25,29 @@ export default function RecordingList({ task }) {
     // eslint-disable-next-line
   }, [task.id]);
 
+  const handleStop = async () => {
+    if (window.confirm("確定要停止錄影？")) {
+      await api.stopRecording(task.id);
+      reload();
+    }
+  };
+
   return (
     <Box sx={{ my: 2, overflowX: "auto" }}>
-      <Typography variant="h6">錄影清單 - {task.name}</Typography>
+      <Typography variant="h6">
+        錄影清單 - {task.name}
+        {recording && (
+          <Button
+            color="warning"
+            variant="outlined"
+            size="small"
+            sx={{ ml: 2 }}
+            onClick={handleStop}
+          >
+            停止錄影
+          </Button>
+        )}
+      </Typography>
       <Table size="small">
         <TableHead>
           <TableRow>
