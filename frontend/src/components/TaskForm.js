@@ -49,7 +49,7 @@ export default function TaskForm({ open, task, onClose }) {
   };
 
   return (
-    <Dialog open={open} onClose={onClose}>
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>{task ? "編輯任務" : "新增任務"}</DialogTitle>
       <DialogContent>
         <TextField
