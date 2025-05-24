@@ -29,7 +29,11 @@ const api = {
     return r.data;
   },
   async stopRecording(taskId) {
-    await axios.post(`/tasks/${taskId}/stop`);
+    await axios.post(`${API}/tasks/${taskId}/stop`);
+  },
+  async getActiveRecordings() {
+    const res = await axios.get(`${API}/active_recordings`);
+    return res.data;
   },
 };
 
