@@ -1,7 +1,7 @@
 import os
 import json
 import threading
-from fastapi import FastAPI, HTTPException, UploadFile, File, Response
+from fastapi import FastAPI, HTTPException, UploadFile, File, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -10,7 +10,8 @@ from typing import List, Optional
 import subprocess
 from uuid import uuid4
 from datetime import datetime
-from typing import Optional  # ← 記得補 import
+import signal
+import sys
 
 DATA_DIR = "/data"
 RECORDINGS_DIR = "/recordings"
@@ -70,6 +71,9 @@ def read_logs(task_id):
     with open(logfile, "r") as f:
         return [json.loads(line) for line in f]
 
+# ========== 重點1：全域進程表 ==========
+active_recordings = {}
+
 def record_stream(task):
     save_path = os.path.join(RECORDINGS_DIR, task.save_dir.strip("/"))
     os.makedirs(save_path, exist_ok=True)
@@ -84,8 +88,11 @@ def record_stream(task):
         "-o", out_file
     ]
     write_log(task.id, "start", f"CMD: {' '.join(base_cmd)}")
+    proc = None
     try:
+        # ========== 註冊進程 ==========
         proc = subprocess.Popen(base_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        active_recordings[task.id] = proc
         stdout, stderr = proc.communicate()
         std_out_msg = stdout.decode("utf-8").strip() if stdout else ""
         std_err_msg = stderr.decode("utf-8").strip() if stderr else ""
@@ -113,10 +120,12 @@ def record_stream(task):
                 write_log(task.id, "error", f"ERROR: {main_line}")
     except Exception as e:
         write_log(task.id, "error", f"EXCEPTION: {str(e)}")
-        
+    finally:
+        # ========== 錄影結束自動移除進程 ==========
+        active_recordings.pop(task.id, None)
+
 def add_job(task: Task):
     job_id = task.id
-    # 刪除舊job（避免重複）
     try:
         scheduler.remove_job(job_id)
     except Exception:
@@ -127,7 +136,7 @@ def add_job(task: Task):
         args=[task],
         id=job_id,
         replace_existing=True,
-        next_run_time=datetime.now()  # 啟動後馬上跑一次
+        next_run_time=datetime.now()
     )
 
 def remove_job(job_id):
@@ -138,7 +147,6 @@ def remove_job(job_id):
 
 @app.on_event("startup")
 def startup_event():
-    # 啟動時自動載入所有任務與排程
     tasks = get_tasks()
     for t in tasks:
         add_job(Task(**t))
@@ -178,7 +186,6 @@ def delete_task(task_id: str):
         tasks = [t for t in tasks if t["id"] != task_id]
         save_tasks(tasks)
         remove_job(task_id)
-    # 同時刪除log檔
     logfile = get_logfile(task_id)
     if os.path.exists(logfile):
         os.remove(logfile)
@@ -217,7 +224,6 @@ def get_recording(task_id: str, filename: str):
     def iterfile():
         with open(file_path, mode="rb") as file_like:
             yield from file_like
-    # 支援瀏覽器線上播放
     return Response(iterfile(), media_type="video/mp2t")
 
 @app.delete("/tasks/{task_id}/recordings/{filename}")
@@ -235,3 +241,27 @@ def delete_recording(task_id: str, filename: str):
 @app.get("/tasks/{task_id}/logs")
 def get_task_logs(task_id: str):
     return read_logs(task_id)
+
+# ========== 新增: 停止錄影 API ==========
+@app.post("/tasks/{task_id}/stop", status_code=status.HTTP_200_OK)
+def stop_recording(task_id: str):
+    proc = active_recordings.get(task_id)
+    if proc and proc.poll() is None:
+        proc.terminate()
+        write_log(task_id, "manual_stop", "User requested stop")
+        return {"ok": True, "msg": "Stopped"}
+    return {"ok": False, "msg": "No active recording"}
+
+# ========== 新增: Docker/SIGTERM 優雅結束全部錄影 ==========
+def handle_shutdown(signum, frame):
+    print("Graceful shutdown: Stopping all recording processes")
+    for proc in list(active_recordings.values()):
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, handle_shutdown)
+signal.signal(signal.SIGINT, handle_shutdown)
