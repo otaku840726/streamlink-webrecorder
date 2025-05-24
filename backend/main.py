@@ -13,7 +13,13 @@ from datetime import datetime
 import signal
 import sys
 from fastapi.responses import FileResponse, StreamingResponse
+import shutil
+from fastapi.staticfiles import StaticFiles
 
+
+HLS_DIR = "/hls"
+os.makedirs(HLS_DIR, exist_ok=True)
+hls_processes = {}  # task_id: subprocess.Popen
 
 DATA_DIR = "/data"
 RECORDINGS_DIR = "/recordings"
@@ -33,6 +39,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.mount("/hls", StaticFiles(directory=HLS_DIR), name="hls")
+
 
 lock = threading.Lock()
 
@@ -141,12 +150,66 @@ def add_job(task: Task):
         replace_existing=True,
         next_run_time=datetime.now()
     )
+    # 啟動 HLS
+    if getattr(task, "hls_enable", False):
+        start_hls_stream(task)
+    else:
+        stop_hls_stream(task.id)
+
 
 def remove_job(job_id):
     try:
         scheduler.remove_job(job_id)
     except Exception:
         pass
+    stop_hls_stream(job_id)
+    # 清除 HLS 目錄
+    task_hls_dir = os.path.join(HLS_DIR, job_id)
+    if os.path.exists(task_hls_dir):
+        shutil.rmtree(task_hls_dir)
+
+
+
+def start_hls_stream(task: Task):
+    # 停止舊的
+    stop_hls_stream(task.id)
+    task_hls_dir = os.path.join(HLS_DIR, task.id)
+    if os.path.exists(task_hls_dir):
+        shutil.rmtree(task_hls_dir)
+    os.makedirs(task_hls_dir, exist_ok=True)
+
+    streamlink_cmd = [
+        "streamlink",
+        *(task.params.split() if task.params else []),
+        task.url,
+        "best",
+        "-O"
+    ]
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-i", "pipe:0",
+        "-c:v", "copy", "-c:a", "copy",
+        "-f", "hls",
+        "-hls_time", "6",
+        "-hls_list_size", "10",
+        "-hls_flags", "delete_segments+program_date_time",
+        os.path.join(task_hls_dir, "stream.m3u8")
+    ]
+    # 開啟 streamlink→ffmpeg pipe
+    streamlink_proc = subprocess.Popen(streamlink_cmd, stdout=subprocess.PIPE)
+    ffmpeg_proc = subprocess.Popen(ffmpeg_cmd, stdin=streamlink_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    hls_processes[task.id] = (streamlink_proc, ffmpeg_proc)
+
+def stop_hls_stream(task_id):
+    procs = hls_processes.get(task_id)
+    if procs:
+        for proc in procs:
+            if proc and proc.poll() is None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+        hls_processes.pop(task_id, None)
 
 @app.on_event("startup")
 def startup_event():
