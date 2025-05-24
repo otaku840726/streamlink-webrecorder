@@ -5,21 +5,31 @@ import CloseIcon from "@mui/icons-material/Close";
 
 export default function VideoPlayer({ url, onClose }) {
   const videoRef = useRef();
+  const hlsRef = useRef(null);
 
   useEffect(() => {
     const video = videoRef.current;
-    let hls;
+    // 清理前一次的 hls
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+    // 支援 m3u8 + Hls.js
     if (url && url.endsWith(".m3u8") && Hls.isSupported()) {
-      hls = new Hls();
+      const hls = new Hls();
       hls.loadSource(url);
       hls.attachMedia(video);
       hls.on(Hls.Events.ERROR, (event, data) => {
         if (data.fatal) hls.destroy();
       });
-    } else if (video) {
+      hlsRef.current = hls;
+    } else if (video && url) {
       video.src = url;
+      video.load();
     }
-    return () => { if (hls) hls.destroy(); };
+    return () => {
+      if (hlsRef.current) hlsRef.current.destroy();
+    };
   }, [url]);
 
   return (
