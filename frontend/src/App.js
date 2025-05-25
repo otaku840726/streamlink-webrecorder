@@ -1,119 +1,116 @@
-import React, { useState, useEffect } from "react";
-import RecordingList from "./components/RecordingList";
-import VideoPlayer from "./components/VideoPlayer";
-import TaskList from "./components/TaskList";
-import TaskForm from "./components/TaskForm";
-import LogList from "./components/LogList";
-import api from "./api";
-import { Container, Typography, Box, Button, Collapse } from "@mui/material";
+import React, { useState } from "react";
+import {
+  Box,
+  IconButton,
+  Drawer,
+  AppBar,
+  Toolbar,
+  Typography,
+  useTheme,
+  useMediaQuery
+} from "@mui/material";
+import MenuIcon from "@mui/icons-material/Menu";
+import TaskList from "./TaskList";
+import RecordingList from "./RecordingList";
+import LogList from "./LogList";
+import TaskForm from "./TaskForm";
+import VideoPlayer from "./VideoPlayer";
 
 export default function App() {
-  const [playUrl, setPlayUrl] = useState(null);
-  const [tasks, setTasks] = useState([]);
-  const [selectedTask, setSelectedTask] = useState(null);
   const [tab, setTab] = useState("tasks");
-  const [openForm, setOpenForm] = useState(false);
-  const [scrollPos, setScrollPos] = useState(0);
+  const [currentTask, setCurrentTask] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // 加载任务列表并定时刷新
-  const reloadTasks = async () => {
-    setTasks(await api.listTasks());
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
+  // 切到子页时自动关抽屉；回任务页可留着不动
+  const handleSelectTask = (task) => {
+    setCurrentTask(task);
+    setTab("recordings");
+    if (isMobile) setDrawerOpen(false);
   };
 
-  useEffect(() => {
-    reloadTasks();
-    const timer = setInterval(reloadTasks, 5000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // 当切换回任务列表时，恢复之前的滚动位置
-  useEffect(() => {
-    if (tab === 'tasks') {
-      window.scrollTo(0, scrollPos);
-    }
-  }, [tab, scrollPos]);
-
-  const handleFormClose = () => {
-    setOpenForm(false);
-    setSelectedTask(null);
-    reloadTasks();
-  };
-
-  const handlePlay = (url) => {
-    setPlayUrl(url);
-  };
-
-  // 返回任务列表
-  const handleBack = () => {
-    setTab("tasks");
-    setSelectedTask(null);
-    setPlayUrl(null);
-  };
+  // AppBar 上的菜单键
+  const renderMenuButton = () => (
+      isMobile && (
+          <IconButton
+              color="inherit"
+              edge="start"
+              onClick={() => setDrawerOpen(true)}
+              sx={{ mr: 2 }}
+          >
+            <MenuIcon />
+          </IconButton>
+      )
+  );
 
   return (
-      <Container>
-        <Box sx={{ py: 3 }}>
-          <Typography variant="h4" gutterBottom>
-            Streamlink Web Recorder Manager
-          </Typography>
+      <Box sx={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+        {/* 左侧抽屉：任务列表 */}
+        <Drawer
+            variant="temporary"
+            open={drawerOpen}
+            onClose={() => setDrawerOpen(false)}
+            ModalProps={{ keepMounted: true }}  // <-- 最关键：隐藏时保留 DOM
+            sx={{
+              "& .MuiDrawer-paper": {
+                width: 300,
+                boxSizing: "border-box",
+              },
+            }}
+        >
+          <TaskList
+              onSelect={handleSelectTask}
+              onShowLogs={() => { setTab("logs"); if (isMobile) setDrawerOpen(false); }}
+              onNewTask={() => setTab("new")}
+          />
+        </Drawer>
 
-          {/* 新增任务按钮，仅在任务列表页显示 */}
+        {/* 主内容区 */}
+        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto" }}>
+          {/* 顶部 AppBar */}
+          <AppBar position="static">
+            <Toolbar>
+              {renderMenuButton()}
+              <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+                {tab === "tasks" && "任務列表"}
+                {tab === "recordings" && `錄影清單 - ${currentTask?.name}`}
+                {tab === "logs" && `日誌 - ${currentTask?.name}`}
+                {tab === "new" && "新增任務"}
+              </Typography>
+              {tab !== "tasks" && (
+                  <Button color="inherit" onClick={() => { setTab("tasks"); }}>
+                    返回任務列表
+                  </Button>
+              )}
+            </Toolbar>
+          </AppBar>
+
+          {/* 根据 tab 渲染 */}
           {tab === "tasks" && (
-              <Button
-                  variant="contained"
-                  sx={{ mb: 2 }}
-                  onClick={() => {
-                    setSelectedTask(null);
-                    setOpenForm(true);
-                  }}
-              >
-                新增任務
-              </Button>
+              // 在桌面端也始终渲染：让 Drawer keepMounted=true 后可切换
+              <Box sx={{ p: 2 }}>
+                <TaskList
+                    onSelect={handleSelectTask}
+                    onShowLogs={() => setTab("logs")}
+                    onNewTask={() => setTab("new")}
+                />
+              </Box>
           )}
-
-          {/* 任务列表，可折叠 */}
-          <Collapse in={tab === "tasks"} unmountOnExit>
-            <TaskList
-                tasks={tasks}
-                onSelectTask={(task) => {
-                  // 进入子页前记录滚动位置
-                  setScrollPos(window.pageYOffset);
-                  setSelectedTask(task);
-                  setTab("recordings");
-                }}
-                onEditTask={(task) => {
-                  setSelectedTask(task);
-                  setOpenForm(true);
-                }}
-                onShowLogs={(task) => {
-                  // 进入日志页前记录滚动位置
-                  setScrollPos(window.pageYOffset);
-                  setSelectedTask(task);
-                  setTab("logs");
-                }}
-                reload={reloadTasks}
-            />
-          </Collapse>
-
-          {/* 返回按钮，仅在子页显示 */}
-          {tab !== "tasks" && (
-              <Button variant="text" onClick={handleBack} sx={{ mb: 2 }}>
-                ← 返回任務列表
-              </Button>
+          {tab === "recordings" && currentTask && (
+              <RecordingList task={currentTask} onPlay={(url) => setPlayerUrl(url)} />
           )}
-
-          {/* 任务表单弹窗 */}
-          <TaskForm open={openForm} task={selectedTask} onClose={handleFormClose} />
+          {tab === "logs" && currentTask && (
+              <LogList task={currentTask} />
+          )}
+          {tab === "new" && (
+              <TaskForm onSaved={() => setTab("tasks")} />
+          )}
+          {playerUrl && (
+              <VideoPlayer url={playerUrl} onClose={() => setPlayerUrl(null)} />
+          )}
         </Box>
-
-        {/* 视频播放器弹窗 */}
-        <VideoPlayer url={playUrl} onClose={() => setPlayUrl(null)} />
-
-        {/* 子页：录影列表或日志列表 */}
-        {selectedTask && tab === "recordings" && (
-            <RecordingList task={selectedTask} onPlay={handlePlay} />
-        )}
-        {selectedTask && tab === "logs" && <LogList task={selectedTask} />}
-      </Container>
+      </Box>
   );
 }
