@@ -70,6 +70,9 @@ export default function App() {
             <Typography variant="h6" component="div">
               Streamlink Recorder
             </Typography>
+            <Button color="inherit" onClick={() => openForm(null)}>
+              新增任務
+            </Button>
           </Toolbar>
         </AppBar>
 
