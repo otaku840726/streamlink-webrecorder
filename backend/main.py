@@ -709,10 +709,13 @@ def get_recording_thumbnail(task_id: str, filename: str):
     thumb_path = os.path.join(THUMBNAILS_DIR, thumb_name)
     # 如果不存在，尝试从源文件生成
     if not os.path.exists(thumb_path):
-        rec_dir = os.path.join(RECORDINGS_DIR, task_id)
-        source_file = os.path.join(rec_dir, filename)
-        if os.path.exists(source_file):
-            generate_thumbnail(source_file)
+        tasks = get_tasks()
+        t = next((x for x in tasks if x["id"] == task_id), None)
+        if t:
+            save_dir = os.path.join(RECORDINGS_DIR, t["save_dir"].strip("/"))
+            source_file = os.path.join(save_dir, filename)
+            if os.path.exists(source_file):
+                generate_thumbnail(source_file)
     if os.path.exists(thumb_path):
         return FileResponse(thumb_path, media_type="image/jpeg", filename=thumb_name)
     raise HTTPException(status_code=404, detail="Thumbnail not found")
