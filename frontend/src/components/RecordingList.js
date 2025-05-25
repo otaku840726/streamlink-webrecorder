@@ -94,7 +94,7 @@ export default function RecordingList({ task, onPlay }) {  // 添加 onPlay prop
                   size="small"
                   onClick={() => {
                     // 構建完整的播放 URL
-                    const baseUrl = `/recordings/${task.id}/${rec.file}`;
+                    const baseUrl = `tasks/${task.id}/recordings/${rec.file}`;
                     const playUrl = rec.file.toLowerCase().endsWith('.ts') 
                       ? `${baseUrl}/mp4`  // 修正：使用 /mp4 而不是 /live_mp4
                       : baseUrl;
