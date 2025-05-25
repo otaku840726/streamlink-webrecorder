@@ -6,130 +6,93 @@ import CloseIcon from "@mui/icons-material/Close";
 function VideoPlayer({ url, onClose }) {
   const videoRef = useRef();
   const hlsRef = useRef(null);
-  const [isReady, setIsReady] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // 追蹤組件掛載狀態
-  const isMounted = useRef(false);
-
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
-
-  // 處理 video 元素的準備狀態
-  useEffect(() => {
-    if (videoRef.current) {
-      setIsReady(true);
-      setIsLoading(false);
-    }
-  }, [videoRef.current]);
-
-  useEffect(() => {
-    if (!isReady || !url) return;
-    
-    console.log('VideoPlayer useEffect 執行, url:', url);
-    setIsLoading(true);
-
-    // 清理上一個 Hls 實例
+  
+  // 清理時保持當前播放狀態
+  const cleanup = () => {
     if (hlsRef.current) {
-      console.log('正在銷毀上一個 HLS 實例');
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
+  };
 
-    const video = videoRef.current;
-    if (!video) return;
+  useEffect(() => {
+    return cleanup; // 組件卸載時清理
+  }, []);
 
-    if (url.endsWith(".m3u8") && Hls.isSupported()) {
+  useEffect(() => {
+    if (!url) return;
+
+    console.log('VideoPlayer - 開始載入 URL:', url);
+    cleanup(); // 在設置新 URL 前清理
+
+    if (!videoRef.current) {
+      console.error('VideoPlayer - video element not ready');
+      return;
+    }
+
+    if (url.endsWith('.m3u8')) {
+      if (!Hls.isSupported()) {
+        console.error('VideoPlayer - HLS not supported');
+        return;
+      }
+
       const hls = new Hls({
         debug: true,
         enableWorker: true,
         lowLatencyMode: true
       });
 
-      // 添加載入完成的處理
-      hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-        if (isMounted.current) {
-          setIsLoading(false);
-          if (videoRef.current) {
-            videoRef.current.play().catch(e => console.error('自動播放失敗:', e));
-          }
-        }
+      hls.on(Hls.Events.MANIFEST_LOADING, () => {
+        console.log('VideoPlayer - Manifest loading');
       });
 
-      // 錯誤處理
-      hls.on(Hls.Events.ERROR, function (event, data) {
-        if (isMounted.current) {
-          setIsLoading(false);
-          console.error('HLS 錯誤:', data);
+      hls.on(Hls.Events.MANIFEST_LOADED, (event, data) => {
+        console.log('VideoPlayer - Manifest loaded:', data);
+      });
+
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        console.error('HLS Error:', data);
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              hls.startLoad(); // 嘗試重新載入
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              hls.recoverMediaError(); // 嘗試恢復媒體錯誤
+              break;
+            default:
+              cleanup();
+              break;
+          }
         }
       });
 
       try {
         hls.loadSource(url);
-        hls.attachMedia(video);
+        hls.attachMedia(videoRef.current);
         hlsRef.current = hls;
       } catch (error) {
-        console.error('Hls.js 初始化錯誤:', error);
-        setIsLoading(false);
+        console.error('HLS initialization error:', error);
       }
-    } else {
-      setIsLoading(false);
     }
-
-    return () => {
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
-    };
-  }, [url, isReady]);
+  }, [url]);
 
   return (
     <Dialog 
       open={!!url} 
-      onClose={onClose} 
+      onClose={onClose}
       fullWidth 
       maxWidth="md"
-      TransitionProps={{
-        onExited: () => {
-          // Dialog 完全關閉後的清理
-          if (hlsRef.current) {
-            hlsRef.current.destroy();
-            hlsRef.current = null;
-          }
-        }
-      }}
     >
       <div style={{ position: "relative", background: "#000" }}>
-        {isLoading && (
-          <div style={{ 
-            position: "absolute", 
-            top: "50%", 
-            left: "50%", 
-            transform: "translate(-50%, -50%)" 
-          }}>
-            載入中...
-          </div>
-        )}
-        {url && (
-          <video
-            ref={videoRef}
-            src={!url.endsWith(".m3u8") ? url : undefined}
-            style={{ 
-              width: "100%", 
-              height: "100%",
-              opacity: isLoading ? 0.3 : 1
-            }}
-            controls
-            autoPlay
-          >
-            不支援此格式
-          </video>
-        )}
+        <video
+          ref={videoRef}
+          style={{ width: "100%", height: "100%" }}
+          controls
+          autoPlay
+        >
+          不支援此格式
+        </video>
         <IconButton
           style={{ position: "absolute", top: 0, right: 0, color: "#fff" }}
           onClick={onClose}
@@ -140,8 +103,3 @@ function VideoPlayer({ url, onClose }) {
     </Dialog>
   );
 }
-
-export default React.memo(VideoPlayer, (prevProps, nextProps) => {
-  // 自定義比較函數，只在 url 真正改變時才重新渲染
-  return prevProps.url === nextProps.url;
-});

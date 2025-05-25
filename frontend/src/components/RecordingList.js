@@ -1,25 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { Box, Typography, Table, TableHead, TableBody, TableRow, TableCell, Button } from "@mui/material";
 import api from "../api";
-import VideoPlayer from "./VideoPlayer";
 
-// 將 VideoPlayer 提升到組件外部
-let globalPlayUrl = null;
-let globalPlayFile = null;
-let globalOnClose = null;
+// 移除 VideoPlayer import，因為已經移到 App.js
 
-export function getVideoPlayerProps() {
-  return {
-    url: globalPlayUrl,
-    onClose: () => {
-      globalPlayUrl = null;
-      globalPlayFile = null;
-      if (globalOnClose) globalOnClose();
-    }
-  };
-}
-
-export default function RecordingList({ task }) {
+export default function RecordingList({ task, onPlay }) {  // 添加 onPlay prop
   const [recordings, setRecordings] = useState([]);
   const [isActive, setIsActive] = useState(false);
 
@@ -39,16 +24,6 @@ export default function RecordingList({ task }) {
     const t = setInterval(reload, 5000);
     return () => clearInterval(t);
   }, [task.id]);
-
-  const handlePlay = (url, file) => {
-    globalPlayUrl = url;
-    globalPlayFile = file;
-    globalOnClose = () => {
-      globalPlayUrl = null;
-      globalPlayFile = null;
-      globalOnClose = null;
-    };
-  };
 
   return (
     <Box sx={{ my: 2, overflowX: "auto" }}>
@@ -93,7 +68,7 @@ export default function RecordingList({ task }) {
             size="small"
             color="success"
             sx={{ ml: 2 }}
-            onClick={() => handlePlay(`/hls/${task.id}/stream.m3u8`, "live")}
+            onClick={() => onPlay(`/hls/${task.id}/stream.m3u8`)}  // 使用傳入的 onPlay
           >
             直播觀看
           </Button>
@@ -117,7 +92,7 @@ export default function RecordingList({ task }) {
               <TableCell>
                 <Button
                   size="small"
-                  onClick={() => handlePlay(`/recordings/${task.id}/${rec.file}`, rec.file)}
+                  onClick={() => onPlay(`/recordings/${task.id}/${rec.file}`)}  // 使用傳入的 onPlay
                 >
                   播放
                 </Button>
