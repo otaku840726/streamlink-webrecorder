@@ -58,7 +58,7 @@ export default function App() {
   // 播放回调
   const handlePlay = (url) => {
     // 如果是相对路径，前面加上 BASE API
-    const fullUrl = url.startsWith("http") ? url : `${process.env.REACT_APP_API}${url}`;
+    const fullUrl =  `${process.env.REACT_APP_API || ""}${url}`;
     setPlayUrl(fullUrl);
   };
 
