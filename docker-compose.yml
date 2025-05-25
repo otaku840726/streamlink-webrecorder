@@ -5,6 +5,8 @@ services:
     container_name: streamlink-web-backend
     ports:
       - "13052:8800"
+    devices:
+      - /dev/dri:/dev/dri
     volumes:
       - ./data:/data
       - ./recordings:/recordings
