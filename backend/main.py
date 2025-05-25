@@ -211,9 +211,12 @@ def start_hls_stream(task: Task):
         "-i", "pipe:0",
         "-c:v", "copy", "-c:a", "copy",
         "-f", "hls",
-        "-hls_time", "1",
-        "-hls_list_size", "10",
-        "-hls_flags", "delete_segments+program_date_time",
+        "-hls_time", "2",                # 改回 2 秒，1 秒太短了
+        "-hls_list_size", "6",           # 適當減少列表大小
+        "-hls_flags", "delete_segments+program_date_time+append_list",  # 添加 append_list
+        "-hls_segment_type", "mpegts",   # 明確指定分段類型
+        "-hls_init_time", "2",           # 初始分段時間
+        "-hls_allow_cache", "1",         # 允許緩存
         os.path.join(task_hls_dir, "stream.m3u8")
     ]
     write_log(task.id, "hls_start", f"CMD: {' '.join(streamlink_cmd)} | {' '.join(ffmpeg_cmd)}")

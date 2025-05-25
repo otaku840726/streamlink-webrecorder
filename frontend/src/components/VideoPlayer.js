@@ -32,11 +32,17 @@ export default function VideoPlayer({ url, onClose }) {
       }
 
       const hls = new Hls({
-        debug: true,
+        debug: false,                    // 生產環境關閉 debug
         enableWorker: true,
         lowLatencyMode: true,
-        manifestLoadingTimeOut: 20000, // 增加載入超時時間
-        manifestLoadingMaxRetry: 3,    // 增加重試次數
+        manifestLoadingTimeOut: 10000,   // 減少載入超時
+        manifestLoadingMaxRetry: 5,      // 增加重試次數
+        levelLoadingTimeOut: 10000,      // 加載級別超時
+        fragLoadingTimeOut: 20000,       // 片段加載超時
+        fragLoadingMaxRetry: 3,          // 片段加載重試
+        maxBufferLength: 30,
+        maxBufferSize: 60 * 1000 * 1000,
+        backBufferLength: 30,
       });
 
       hls.on(Hls.Events.MANIFEST_LOADING, () => {
