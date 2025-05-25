@@ -18,13 +18,20 @@ export default function VideoPlayer({ url, onClose }) {
 
     // 只針對 m3u8 用 Hls.js
     if (url && url.endsWith(".m3u8") && Hls.isSupported()) {
-      const hls = new Hls();
+      const hls = new Hls({debug: true});
       hls.loadSource(url);
       hls.attachMedia(video);
       hlsRef.current = hls;
 
+      hls.on(Hls.Events.MANIFEST_PARSED, function() {
+        console.log("HLS manifest loaded successfully");
+        video.play();
+      });
+
       hls.on(Hls.Events.ERROR, (event, data) => {
+        console.error("HLS error:", data);
         if (data.fatal) {
+          console.error("Fatal error:", data.type);
           hls.destroy();
         }
       });
