@@ -7,6 +7,7 @@ import {
   Toolbar,
   IconButton,
   Typography,
+  Button,
   useTheme,
   useMediaQuery,
 } from "@mui/material";
