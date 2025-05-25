@@ -5,10 +5,12 @@
 
 :80 {
     # 所有 /tasks、/hls、/thumbnails 请求都 Proxy 到后端
-    handle_path /tasks* /hls* /thumbnails* {
+    @streamlink-api {
+        path /task* /hls* /thumbnails*
+    }
+    handle @streamlink-api {
         reverse_proxy backend:8800
     }
-
     # 其余请求（也就是前端静态资源）都 Proxy 到前端
     handle {
         reverse_proxy frontend:80
