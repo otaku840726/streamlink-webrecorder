@@ -46,6 +46,7 @@ app.add_middleware(
 )
 
 app.mount("/hls", StaticFiles(directory=HLS_DIR), name="hls")
+app.mount("/thumbnails", StaticFiles(directory=THUMBNAILS_DIR), name="thumbnails")
 
 
 lock = threading.Lock()
