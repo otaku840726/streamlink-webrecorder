@@ -1,16 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import RecordingList from "./components/RecordingList";
 import VideoPlayer from "./components/VideoPlayer";
-// ... 其他 imports
-import { Container, Typography, Box, Button } from "@mui/material";
 import TaskList from "./components/TaskList";
 import TaskForm from "./components/TaskForm";
 import LogList from "./components/LogList";
 import api from "./api";
-import { useEffect } from "react";
+import { Container, Typography, Box, Button, Collapse } from "@mui/material";
 
 export default function App() {
-  // ... 其他狀態
   const [playUrl, setPlayUrl] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [selectedTask, setSelectedTask] = useState(null);
@@ -23,79 +20,88 @@ export default function App() {
 
   useEffect(() => {
     reloadTasks();
-    // 定時刷新
     const timer = setInterval(() => reloadTasks(), 5000);
     return () => clearInterval(timer);
   }, []);
 
-  // 彈窗關閉後務必清空 selectedTask，防止下次開啟內容殘留
   const handleFormClose = () => {
     setOpenForm(false);
     setSelectedTask(null);
     reloadTasks();
   };
 
-  // 提供給子組件的播放處理函數
   const handlePlay = (url) => {
     setPlayUrl(url);
   };
 
+  const handleBack = () => {
+    setTab("tasks");
+    setSelectedTask(null);
+    setPlayUrl(null);
+  };
+
   return (
-    <div>
-      {/* ... 其他 UI 元素 */}
-      <Container>
-        <Box sx={{ py: 3 }}>
-          <Typography variant="h4" gutterBottom>
-            Streamlink Web Recorder Manager
-          </Typography>
-          <Button
-            variant="contained"
-            onClick={() => {
-              setSelectedTask(null); // 新增時 task = null
-              setOpenForm(true);
-            }}
-            sx={{ mb: 2 }}
-          >
-            新增任務
-          </Button>
-          <TaskList
-            tasks={tasks}
-            onSelectTask={(task) => {
-              setSelectedTask(task);
-              setTab("recordings");
-            }}
-            onEditTask={(task) => {
-              setSelectedTask(task);
-              setOpenForm(true);
-            }}
-            onShowLogs={(task) => {
-              setSelectedTask(task);
-              setTab("logs");
-            }}
-            reload={reloadTasks}
-          />
-          <TaskForm
-            open={openForm}
-            task={selectedTask}
-            onClose={handleFormClose}
-          />
-          {/* ... 其他組件 */}
-        </Box>
-      </Container>
+      <div>
+        <Container>
+          <Box sx={{ py: 3 }}>
+            <Typography variant="h4" gutterBottom>
+              Streamlink Web Recorder Manager
+            </Typography>
 
-      {/* VideoPlayer 移到最外層 */}
-      <VideoPlayer 
-        url={playUrl} 
-        onClose={() => setPlayUrl(null)}
-      />
+            {/* 新增按鈕僅在任務列表顯示 */}
+            {tab === "tasks" && (
+                <Button
+                    variant="contained"
+                    sx={{ mb: 2 }}
+                    onClick={() => {
+                      setSelectedTask(null);
+                      setOpenForm(true);
+                    }}
+                >
+                  新增任務
+                </Button>
+            )}
 
-      {selectedTask && tab === "recordings" && (
-        <RecordingList 
-          task={selectedTask} 
-          onPlay={handlePlay}  // 傳入播放處理函數
-        />
-      )}
-      {selectedTask && tab === "logs" && <LogList task={selectedTask} />}
-    </div>
+            {/* 任務列表 Collapse */}
+            <Collapse in={tab === "tasks"} unmountOnExit>
+              <TaskList
+                  tasks={tasks}
+                  onSelectTask={(task) => {
+                    setSelectedTask(task);
+                    setTab("recordings");
+                  }}
+                  onEditTask={(task) => {
+                    setSelectedTask(task);
+                    setOpenForm(true);
+                  }}
+                  onShowLogs={(task) => {
+                    setSelectedTask(task);
+                    setTab("logs");
+                  }}
+                  reload={reloadTasks}
+              />
+            </Collapse>
+
+            {/* 返回按鈕 */}
+            {tab !== "tasks" && (
+                <Button variant="text" onClick={handleBack} sx={{ mb: 2 }}>
+                  ← 返回任務列表
+                </Button>
+            )}
+
+            {/* 任務表單 */}
+            <TaskForm open={openForm} task={selectedTask} onClose={handleFormClose} />
+          </Box>
+        </Container>
+
+        {/* 播放器 */}
+        <VideoPlayer url={playUrl} onClose={() => setPlayUrl(null)} />
+
+        {/* 子頁面：錄影清單或紀錄 */}
+        {selectedTask && tab === "recordings" && (
+            <RecordingList task={selectedTask} onPlay={handlePlay} />
+        )}
+        {selectedTask && tab === "logs" && <LogList task={selectedTask} />}
+      </div>
   );
 }
