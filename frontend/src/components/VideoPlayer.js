@@ -31,11 +31,25 @@ export default function VideoPlayer({ url, onClose }) {
         video.play();
       });
 
-      hls.on(Hls.Events.ERROR, (event, data) => {
-        console.error("HLS error:", data);
+      hls.on(Hls.Events.ERROR, function (event, data) {
+        console.error('HLS.js ERROR:', data);
+        // Potentially more detailed error information here
         if (data.fatal) {
-          console.error("Fatal error:", data.type);
-          hls.destroy();
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              console.error('fatal network error encountered', data.details);
+              // try to recover network error
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              console.error('fatal media error encountered', data.details);
+              hls.recoverMediaError();
+              break;
+            default:
+              // cannot recover
+              hls.destroy();
+              break;
+          }
         }
       });
     }
