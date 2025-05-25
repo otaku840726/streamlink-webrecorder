@@ -13,6 +13,7 @@ services:
       - ./data:/data
       - ./recordings:/recordings
       - ./hls:/hls
+      - ./thumbnails:/thumbnails
     restart: unless-stopped
 
   frontend:
