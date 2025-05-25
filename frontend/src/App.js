@@ -3,6 +3,8 @@ import { Container, Typography, Box, Button } from "@mui/material";
 import TaskList from "./components/TaskList";
 import TaskForm from "./components/TaskForm";
 import RecordingList from "./components/RecordingList";
+import VideoPlayer from "./components/VideoPlayer";
+import { getVideoPlayerProps } from "./components/RecordingList";
 import LogList from "./components/LogList";
 import api from "./api";
 
@@ -29,6 +31,9 @@ export default function App() {
     setSelectedTask(null);
     reloadTasks();
   };
+
+  // 獲取 VideoPlayer 的 props
+  const videoPlayerProps = getVideoPlayerProps();
 
   return (
     <Container>
@@ -71,6 +76,13 @@ export default function App() {
           <RecordingList task={selectedTask} />
         )}
         {selectedTask && tab === "logs" && <LogList task={selectedTask} />}
+        {/* VideoPlayer 移到這裡，不受列表更新影響 */}
+        {videoPlayerProps.url && (
+          <VideoPlayer
+            url={videoPlayerProps.url}
+            onClose={videoPlayerProps.onClose}
+          />
+        )}
       </Box>
     </Container>
   );

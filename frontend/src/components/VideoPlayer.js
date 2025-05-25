@@ -3,7 +3,7 @@ import Hls from "hls.js";
 import { Dialog, IconButton } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 
-export default function VideoPlayer({ url, onClose }) {
+function VideoPlayer({ url, onClose }) {
   const videoRef = useRef();
   const hlsRef = useRef(null);
 
@@ -53,7 +53,6 @@ export default function VideoPlayer({ url, onClose }) {
         }
       });
     }
-    // mp4/ts 只靠 React 控制 src 屬性即可
 
     // 清理
     return () => {
@@ -92,3 +91,6 @@ export default function VideoPlayer({ url, onClose }) {
     </Dialog>
   );
 }
+
+// 使用 React.memo 包裝組件，只在 props 真正改變時重新渲染
+export default React.memo(VideoPlayer);
