@@ -111,7 +111,7 @@ export default function RecordingList({ task, onPlay }) {
                         size="small"
                         variant="outlined"
                         onClick={() => {
-                          const baseUrl = `tasks/${task.id}/recordings/${rec.file}`;
+                          const baseUrl = `/tasks/${task.id}/recordings/${rec.file}`;
                           const playUrl = rec.file.toLowerCase().endsWith('.ts') ? `${baseUrl}/mp4` : baseUrl;
                           onPlay(playUrl);
                         }}
