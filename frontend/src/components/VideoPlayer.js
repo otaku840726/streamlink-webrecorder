@@ -35,6 +35,8 @@ export default function VideoPlayer({ url, onClose }) {
         debug: true,
         enableWorker: true,
         lowLatencyMode: true,
+        manifestLoadingTimeOut: 20000, // 增加載入超時時間
+        manifestLoadingMaxRetry: 3,    // 增加重試次數
       });
 
       hls.on(Hls.Events.MANIFEST_LOADING, () => {
@@ -114,6 +116,12 @@ export default function VideoPlayer({ url, onClose }) {
       onClose={handleClose}
       fullWidth 
       maxWidth="md"
+      TransitionProps={{
+        onEntered: () => {
+          console.log('Dialog transition completed');
+          initializePlayer(); // Dialog 完全打開後再次嘗試初始化
+        }
+      }}
     >
       <div style={{ 
         position: "relative", 
