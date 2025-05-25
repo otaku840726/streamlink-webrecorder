@@ -128,18 +128,12 @@ def record_stream(task):
         std_err_msg = stderr.decode("utf-8").strip() if stderr else ""
         if proc.returncode == 0:
             write_log(task.id, "end", f"SUCCESS: {out_file}")
-            # --- 自動轉成 MP4 ---
-            try:
-                mp4_file = out_file.rsplit('.', 1)[0] + ".mp4"
-                ffmpeg_cmd = [
-                    "ffmpeg", "-y", "-i", out_file, "-c", "copy", mp4_file
-                ]
-                proc2 = subprocess.run(ffmpeg_cmd, capture_output=True, check=True)
+            # --- 自動轉成 MP4 --- (統一使用 ts_to_mp4 函數)
+            mp4_file = ts_to_mp4(out_file)
+            if mp4_file:
                 write_log(task.id, "mp4", f"MP4 converted: {mp4_file}")
-                # 若你只要保留 mp4，可解註下一行自動刪除 ts
-                # os.remove(out_file)
-            except Exception as e:
-                write_log(task.id, "error", f"MP4 conversion failed: {e}")
+            else:
+                write_log(task.id, "error", f"MP4 conversion failed for {out_file}")
         else:
             # 無論錯誤訊息在哪裡，都抓進 log
             reason = std_err_msg or std_out_msg or "Unknown"
@@ -153,8 +147,16 @@ def record_stream(task):
     finally:
         # ========== 錄影結束自動移除進程 ==========
         active_recordings.pop(task.id, None)
+        # 確保在 finally 區塊也呼叫 ts_to_mp4，以處理可能的例外情況
         if os.path.exists(out_file):
-            ts_to_mp4(out_file)
+            mp4_file = ts_to_mp4(out_file)
+            if mp4_file:
+                # 這裡可以選擇是否要記錄，因為前面成功時已經記錄過了
+                # write_log(task.id, "mp4_finally", f"MP4 converted (finally): {mp4_file}")
+                pass # 或者不記錄
+            else:
+                # 如果轉換失敗，可以記錄一下
+                write_log(task.id, "error_finally", f"MP4 conversion failed (finally) for {out_file}")
 
 def add_job(task: Task):
     stop_hls_stream(task.id)  # 保險先停
@@ -191,7 +193,6 @@ def remove_job(job_id):
 
 
 def start_hls_stream(task: Task):
-    # 停止舊的
     stop_hls_stream(task.id)
     task_hls_dir = os.path.join(HLS_DIR, task.id)
     if os.path.exists(task_hls_dir):
@@ -215,10 +216,20 @@ def start_hls_stream(task: Task):
         "-hls_flags", "delete_segments+program_date_time",
         os.path.join(task_hls_dir, "stream.m3u8")
     ]
-    # 開啟 streamlink→ffmpeg pipe
+    write_log(task.id, "hls_start", f"CMD: {' '.join(streamlink_cmd)} | {' '.join(ffmpeg_cmd)}")
     streamlink_proc = subprocess.Popen(streamlink_cmd, stdout=subprocess.PIPE)
     ffmpeg_proc = subprocess.Popen(ffmpeg_cmd, stdin=streamlink_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     hls_processes[task.id] = (streamlink_proc, ffmpeg_proc)
+
+    def monitor_ffmpeg():
+        stdout, stderr = ffmpeg_proc.communicate()
+        std_out_msg = stdout.decode("utf-8", errors="ignore") if stdout else ""
+        std_err_msg = stderr.decode("utf-8", errors="ignore") if stderr else ""
+        if ffmpeg_proc.returncode == 0:
+            write_log(task.id, "hls_end", "ffmpeg exited normally")
+        else:
+            write_log(task.id, "hls_error", f"ffmpeg exited: {std_err_msg or std_out_msg}")
+    threading.Thread(target=monitor_ffmpeg, daemon=True).start()
 
 def stop_hls_stream(task_id):
     procs = hls_processes.get(task_id)
