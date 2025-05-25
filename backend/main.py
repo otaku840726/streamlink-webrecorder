@@ -153,6 +153,8 @@ def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
     """
     import os, subprocess, tempfile, time, shutil
 
+    return None
+
     if not os.path.exists(ts_file):
         print(f"错误: 找不到 TS 文件 {ts_file}")
         return None
