@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     curl && \
     rm -rf /var/lib/apt/lists/*
 
+
 # 安裝 Intel Media SDK 和 Intel GPU 驅動
 RUN apt-get update && apt-get install -y \
     intel-media-va-driver-non-free \
@@ -22,8 +23,10 @@ RUN apt-get update && apt-get install -y \
     libva-x11-2 \
     vainfo \
     i965-va-driver \
-    libmfx1 && \
+    intel-oneapi-runtime-media \
+    oneapi-vpl-gpu && \
     rm -rf /var/lib/apt/lists/*
+
 
 # 安裝 python 依賴與 streamlink
 COPY requirements.txt .
