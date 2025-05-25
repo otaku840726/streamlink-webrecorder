@@ -5,16 +5,16 @@ WORKDIR /app
 # 安裝必要的 build 及執行期依賴
 RUN apt-get update && apt-get install -y \
     git build-essential pkg-config \
-    yasm cmake ninja-build \
+    yasm nasm cmake ninja-build \
     python3 python3-pip python3-venv \
     wget curl ca-certificates \
     libva-dev libdrm-dev libvpl-dev \
     intel-media-va-driver-non-free \
-    libass-dev libfreetype6-dev libgnutls28-dev \
-    libmp3lame-dev libopus-dev libvpx-dev libx264-dev libx265-dev libnuma-dev \
+    libass-dev libfreetype6-dev libmp3lame-dev \
+    libopus-dev libvpx-dev libx264-dev libx265-dev \
     libvorbis-dev libxcb1-dev libxcb-shm0-dev libxcb-xfixes0-dev \
-    libunistring-dev libfribidi-dev libxml2-dev libbluray-dev && \
-    rm -rf /var/lib/apt/lists/*
+    libfribidi-dev libxml2-dev libbluray-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # 編譯並安裝最新 ffmpeg（支援 qsv_params）
 RUN git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git ffmpeg && \
