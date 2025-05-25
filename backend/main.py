@@ -725,10 +725,13 @@ def list_thumbnails(task_id: str, filename: str):
     thumb_dir = os.path.join(THUMBNAILS_DIR, name)
     # 若目录不存在则尝试生成
     if not os.path.isdir(thumb_dir):
-        rec_dir = os.path.join(RECORDINGS_DIR, task_id)
-        source_file = os.path.join(rec_dir, filename)
-        if os.path.exists(source_file):
-            generate_thumbnail(source_file)
+        tasks = get_tasks()
+        t = next((x for x in tasks if x["id"] == task_id), None)
+        if t:
+            save_dir = os.path.join(RECORDINGS_DIR, t["save_dir"].strip("/"))
+            source_file = os.path.join(save_dir, filename)
+            if os.path.exists(source_file):
+                generate_thumbnail(source_file)
     if not os.path.isdir(thumb_dir):
         raise HTTPException(status_code=404, detail="Thumbnails not found")
     # 列出 JPG 文件，并按文件名排序
