@@ -9,13 +9,14 @@ RUN apt-get update && apt-get install -y \
     libavfilter-extra \
     python3 \
     python3-pip \
+    python3-venv \
     wget \
     gnupg \
     software-properties-common \
     curl && \
     rm -rf /var/lib/apt/lists/*
 
-# 僅安裝能在 Ubuntu 25.04 找到的 Intel Media 驅動
+# 安裝 Intel Media 驅動
 RUN apt-get update && apt-get install -y \
     intel-media-va-driver-non-free \
     libva-drm2 \
@@ -24,8 +25,10 @@ RUN apt-get update && apt-get install -y \
     i965-va-driver && \
     rm -rf /var/lib/apt/lists/*
 
-# 安裝 python 依賴與 streamlink
+# 建立 Python venv 並安裝套件
 COPY requirements.txt .
+RUN python3 -m venv /venv
+ENV PATH="/venv/bin:$PATH"
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 RUN pip install streamlink
