@@ -3,7 +3,8 @@ import Hls from "hls.js";
 import { Dialog, IconButton } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 
-function VideoPlayer({ url, onClose }) {
+// 修改這裡：添加 export default
+const VideoPlayer = ({ url, onClose }) => {
   const videoRef = useRef();
   const hlsRef = useRef(null);
   
@@ -103,3 +104,6 @@ function VideoPlayer({ url, onClose }) {
     </Dialog>
   );
 }
+
+// 添加 export default
+export default VideoPlayer;
