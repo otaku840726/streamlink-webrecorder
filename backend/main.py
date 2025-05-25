@@ -148,177 +148,91 @@ def write_compression_log(message):
 
 def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
     """
-    將 TS 檔轉換為高壓縮率的 MP4 檔，只用 Intel iGPU VA-API 硬體加速。
-    參數:
-    - ts_file: TS 文件路徑
-    - quality: 壓縮品質 ("extreme", "high", "medium", "low")
-    - use_segmentation: 是否使用分段處理
-    - task_id: 任務 ID
-    返回: 成功時返回 MP4 文件路徑，失敗時返回 None
+    将 TS 转为高压缩 MP4，保持原分辨率与帧率，使用 VA-API const_qp 模式。
+    quality: 决定 QP 值，值越高压缩越明显（画质更差）。
     """
-    import os
-    import subprocess
-    import shutil
-    import tempfile
-    import time
+    import os, subprocess, tempfile, time, shutil
 
     if not os.path.exists(ts_file):
-        print(f"錯誤: 找不到 TS 文件 {ts_file}")
+        print(f"错误: 找不到 TS 文件 {ts_file}")
         return None
 
-    file_size_mb = os.path.getsize(ts_file) / (1024 * 1024)
-    print(f"開始處理 {ts_file}，大小: {file_size_mb:.2f} MB")
+    file_size_mb = os.path.getsize(ts_file) / (1024*1024)
+    print(f"开始处理 {ts_file}，大小: {file_size_mb:.2f} MB")
     if task_id is None:
+        task_id = os.path.basename(os.path.dirname(ts_file)) or "unknown"
+
+    # 映射 quality -> QP
+    qp_map = {"extreme": 36, "high": 32, "medium": 28, "low": 24}
+    qp = qp_map.get(quality, qp_map["high"])
+
+    mp4_file = ts_file.rsplit('.',1)[0] + ".mp4"
+    start = time.time()
+
+    def log(msg):
+        print(msg)
         try:
-            task_id = os.path.basename(os.path.dirname(ts_file))
-        except:
-            task_id = "unknown"
+            write_log(task_id, "mp4_compression", msg)
+        except: pass
 
-    # 固定使用 VA-API hevc_vaapi
-    vaapi_settings = {
-        "extreme": {"b_v": "1000k", "qp": "32"},
-        "high":    {"b_v": "2000k", "qp": "28"},
-        "medium":  {"b_v": "3000k", "qp": "24"},
-        "low":     {"b_v": "4000k", "qp": "20"},
-    }
-    compress = vaapi_settings.get(quality, vaapi_settings["high"])
-    b_v = compress["b_v"]
-    qp = compress["qp"]
+    log(f"开始转码（const_qp={qp}）")
 
-    mp4_file = ts_file.rsplit('.', 1)[0] + ".mp4"
-    start_time = time.time()
+    large = file_size_mb > 500 and use_segmentation
 
-    def write_compression_log(message):
-        if task_id:
-            write_log(task_id, "mp4_compression", message)
-        print(message)
+    def build_cmd(input_path, output_path):
+        return [
+            "ffmpeg", "-y",
+            "-hwaccel", "vaapi", "-vaapi_device", "/dev/dri/renderD128",
+            "-i", input_path,
+            "-vf", "format=nv12,hwupload",      # 保留原分辨率与帧率
+            "-c:v", "hevc_vaapi",
+            "-rc_mode", "const_qp", "-qp", str(qp),
+            "-c:a", "aac", "-b:a", "64k",
+            "-movflags", "+faststart",
+            output_path
+        ]
 
-    write_compression_log(
-        f"開始轉換 {os.path.basename(ts_file)} 為 MP4，壓縮級別: {quality}，使用 VA-API 硬體加速（hevc_vaapi）"
-    )
-
-    large_file = file_size_mb > 500 and use_segmentation
-
-    if large_file:
-        write_compression_log(f"檔案較大 ({file_size_mb:.2f}MB)，使用分段處理")
-        temp_dir = tempfile.mkdtemp()
+    if large:
+        log("大文件，分段处理")
+        tmp = tempfile.mkdtemp()
         try:
-            segment_time = 120
-            segments_cmd = [
-                "ffmpeg", "-i", ts_file,
-                "-f", "segment",
-                "-segment_time", str(segment_time),
-                "-reset_timestamps", "1",
-                "-c", "copy",
-                os.path.join(temp_dir, "segment_%03d.ts")
-            ]
-            write_compression_log("將大文件分段...")
-            subprocess.run(segments_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            segments = sorted([f for f in os.listdir(temp_dir) if f.startswith("segment_") and f.endswith(".ts")])
-            write_compression_log(f"共分為 {len(segments)} 個分段，逐一處理...")
-
-            mp4_segments = []
-            for i, segment in enumerate(segments):
-                segment_path = os.path.join(temp_dir, segment)
-                mp4_segment = segment_path.replace(".ts", ".mp4")
-                segment_cmd = [
-                    "ffmpeg", "-y", "-hwaccel", "vaapi", "-vaapi_device", "/dev/dri/renderD128",
-                    "-i", segment_path,
-                    "-vf", "format=nv12,hwupload",
-                    "-c:v", "hevc_vaapi",
-                    "-b:v", b_v,
-                    "-qp", qp,
-                    "-c:a", "aac",
-                    "-b:a", "64k",
-                    "-movflags", "+faststart",
-                    "-pix_fmt", "nv12",
-                    mp4_segment
-                ]
-                write_compression_log(f"處理分段 {i+1}/{len(segments)}...")
-                try:
-                    subprocess.run(segment_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    mp4_segments.append(mp4_segment)
-                except subprocess.CalledProcessError as e:
-                    stderr = e.stderr.decode("utf-8", errors="ignore") if e.stderr else ""
-                    write_compression_log(f"分段 {i+1} 處理失敗: {stderr[:200]}")
-                    continue
-            if not mp4_segments:
-                write_compression_log("所有分段處理失敗")
-                return None
-            write_compression_log("合併所有處理完的分段...")
-            concat_file = os.path.join(temp_dir, "concat.txt")
-            with open(concat_file, "w") as f:
-                for mp4_segment in mp4_segments:
-                    f.write(f"file '{mp4_segment}'\n")
-            concat_cmd = [
-                "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                "-i", concat_file,
-                "-c", "copy",
-                mp4_file
-            ]
-            subprocess.run(concat_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        except Exception as e:
-            write_compression_log(f"分段處理過程中出錯: {str(e)}")
-            return None
+            # 分段
+            segs = os.path.join(tmp, "seg_%03d.ts")
+            subprocess.run(
+                ["ffmpeg","-i",ts_file,"-f","segment","-segment_time","120",
+                 "-reset_timestamps","1","-c","copy",segs],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            parts = sorted(f for f in os.listdir(tmp) if f.endswith(".ts"))
+            out_parts = []
+            for p in parts:
+                in_p = os.path.join(tmp, p)
+                out_p = in_p.replace(".ts", ".mp4")
+                log(f"转码 {p}")
+                subprocess.run(build_cmd(in_p, out_p), check=True)
+                out_parts.append(out_p)
+            # 合并
+            list_txt = os.path.join(tmp, "list.txt")
+            with open(list_txt,"w") as f:
+                for op in out_parts:
+                    f.write(f"file '{op}'\n")
+            subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i",list_txt,"-c","copy",mp4_file], check=True)
         finally:
-            try:
-                shutil.rmtree(temp_dir)
-            except:
-                pass
+            shutil.rmtree(tmp, ignore_errors=True)
     else:
-        try:
-            ffmpeg_cmd = [
-                "ffmpeg", "-y", "-hwaccel", "vaapi", "-vaapi_device", "/dev/dri/renderD128",
-                "-i", ts_file,
-                "-vf", "format=nv12,hwupload",
-                "-c:v", "hevc_vaapi",
-                "-b:v", b_v,
-                "-qp", qp,
-                "-c:a", "aac",
-                "-b:a", "64k",
-                "-movflags", "+faststart",
-                "-pix_fmt", "nv12",
-                mp4_file
-            ]
-            write_compression_log(f"執行單文件轉換，命令: {' '.join(ffmpeg_cmd)}")
-            subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        except subprocess.CalledProcessError as e:
-            stderr = e.stderr.decode("utf-8", errors="ignore") if e.stderr else ""
-            write_compression_log(f"轉換失敗: {stderr[:500]}")
-            return None
-        except Exception as e:
-            write_compression_log(f"未知錯誤: {str(e)}")
-            return None
+        log("单文件转码")
+        subprocess.run(build_cmd(ts_file, mp4_file), check=True)
 
     if os.path.exists(mp4_file):
-        original_size = os.path.getsize(ts_file)
-        compressed_size = os.path.getsize(mp4_file)
-        compression_ratio = (1 - compressed_size / original_size) * 100
-        elapsed_time = time.time() - start_time
-        result_msg = (
-            f"轉換成功: {os.path.basename(mp4_file)}\n"
-            f"原始大小: {original_size/1024/1024:.2f}MB\n"
-            f"壓縮大小: {compressed_size/1024/1024:.2f}MB\n"
-            f"壓縮比: {compression_ratio:.2f}%\n"
-            f"節省空間: {(original_size-compressed_size)/1024/1024:.2f}MB\n"
-            f"處理時間: {elapsed_time:.1f}秒\n"
-            f"使用 VA-API 硬體加速"
-        )
-        write_compression_log(result_msg)
+        orig = os.path.getsize(ts_file)
+        comp = os.path.getsize(mp4_file)
+        log(f"完成：原 {orig/1024/1024:.2f}MB → 新 {comp/1024/1024:.2f}MB，耗时 {time.time()-start:.1f}s")
         try:
             os.remove(ts_file)
-            write_compression_log(f"原始 TS 文件已刪除")
-        except Exception as e:
-            write_compression_log(f"無法刪除原始 TS 文件: {str(e)}")
-        # —— 自动生成缩略图 —— 
-        try:
-            generate_thumbnail(mp4_file)
-        except Exception as e:
-            write_compression_log(f"缩略图生成失败: {e}")
+        except: pass
         return mp4_file
-
     else:
-        write_compression_log(f"轉換失敗: 找不到輸出文件")
+        log("转码失败：未生成输出文件")
         return None
 
 # ========== 重點1：全域進程表 ==========
