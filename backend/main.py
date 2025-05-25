@@ -186,7 +186,7 @@ def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
             "-i", input_path,
             "-vf", "format=nv12,hwupload",      # 保留原分辨率与帧率
             "-c:v", "hevc_vaapi",
-            "-rc_mode", "const_qp", "-qp", str(qp),
+            "-rc_mode", "CQP", "-qp", str(qp),
             "-c:a", "aac", "-b:a", "64k",
             "-movflags", "+faststart",
             output_path
