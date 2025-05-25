@@ -15,15 +15,23 @@ export default function App() {
   const [openForm, setOpenForm] = useState(false);
   const [scrollPos, setScrollPos] = useState(0);
 
+  // 加载任务列表并定时刷新
   const reloadTasks = async () => {
     setTasks(await api.listTasks());
   };
 
   useEffect(() => {
     reloadTasks();
-    const timer = setInterval(() => reloadTasks(), 5000);
+    const timer = setInterval(reloadTasks, 5000);
     return () => clearInterval(timer);
   }, []);
+
+  // 当切换回任务列表时，恢复之前的滚动位置
+  useEffect(() => {
+    if (tab === 'tasks') {
+      window.scrollTo(0, scrollPos);
+    }
+  }, [tab, scrollPos]);
 
   const handleFormClose = () => {
     setOpenForm(false);
@@ -35,77 +43,77 @@ export default function App() {
     setPlayUrl(url);
   };
 
+  // 返回任务列表
   const handleBack = () => {
-    // 恢复滚动位置
-    const currentScroll = window.pageYOffset || document.documentElement.scrollTop;
-    setScrollPos(currentScroll);
     setTab("tasks");
     setSelectedTask(null);
     setPlayUrl(null);
   };
 
   return (
-      <div>
-        <Container>
-          <Box sx={{ py: 3 }}>
-            <Typography variant="h4" gutterBottom>
-              Streamlink Web Recorder Manager
-            </Typography>
+      <Container>
+        <Box sx={{ py: 3 }}>
+          <Typography variant="h4" gutterBottom>
+            Streamlink Web Recorder Manager
+          </Typography>
 
-            {/* 新增按鈕僅在任務列表顯示 */}
-            {tab === "tasks" && (
-                <Button
-                    variant="contained"
-                    sx={{ mb: 2 }}
-                    onClick={() => {
-                      setSelectedTask(null);
-                      setOpenForm(true);
-                    }}
-                >
-                  新增任務
-                </Button>
-            )}
-
-            {/* 任務列表 Collapse */}
-            <Collapse in={tab === "tasks"} unmountOnExit>
-              <TaskList
-                  tasks={tasks}
-                  onSelectTask={(task) => {
-                    setSelectedTask(task);
-                    setTab("recordings");
-                  }}
-                  onEditTask={(task) => {
-                    setSelectedTask(task);
+          {/* 新增任务按钮，仅在任务列表页显示 */}
+          {tab === "tasks" && (
+              <Button
+                  variant="contained"
+                  sx={{ mb: 2 }}
+                  onClick={() => {
+                    setSelectedTask(null);
                     setOpenForm(true);
                   }}
-                  onShowLogs={(task) => {
-                    setSelectedTask(task);
-                    setTab("logs");
-                  }}
-                  reload={reloadTasks}
-              />
-            </Collapse>
+              >
+                新增任務
+              </Button>
+          )}
 
-            {/* 返回按鈕 */}
-            {tab !== "tasks" && (
-                <Button variant="text" onClick={handleBack} sx={{ mb: 2 }}>
-                  ← 返回任務列表
-                </Button>
-            )}
+          {/* 任务列表，可折叠 */}
+          <Collapse in={tab === "tasks"} unmountOnExit>
+            <TaskList
+                tasks={tasks}
+                onSelectTask={(task) => {
+                  // 进入子页前记录滚动位置
+                  setScrollPos(window.pageYOffset);
+                  setSelectedTask(task);
+                  setTab("recordings");
+                }}
+                onEditTask={(task) => {
+                  setSelectedTask(task);
+                  setOpenForm(true);
+                }}
+                onShowLogs={(task) => {
+                  // 进入日志页前记录滚动位置
+                  setScrollPos(window.pageYOffset);
+                  setSelectedTask(task);
+                  setTab("logs");
+                }}
+                reload={reloadTasks}
+            />
+          </Collapse>
 
-            {/* 任務表單 */}
-            <TaskForm open={openForm} task={selectedTask} onClose={handleFormClose} />
-          </Box>
-        </Container>
+          {/* 返回按钮，仅在子页显示 */}
+          {tab !== "tasks" && (
+              <Button variant="text" onClick={handleBack} sx={{ mb: 2 }}>
+                ← 返回任務列表
+              </Button>
+          )}
 
-        {/* 播放器 */}
+          {/* 任务表单弹窗 */}
+          <TaskForm open={openForm} task={selectedTask} onClose={handleFormClose} />
+        </Box>
+
+        {/* 视频播放器弹窗 */}
         <VideoPlayer url={playUrl} onClose={() => setPlayUrl(null)} />
 
-        {/* 子頁面：錄影清單或紀錄 */}
+        {/* 子页：录影列表或日志列表 */}
         {selectedTask && tab === "recordings" && (
             <RecordingList task={selectedTask} onPlay={handlePlay} />
         )}
         {selectedTask && tab === "logs" && <LogList task={selectedTask} />}
-      </div>
+      </Container>
   );
 }
