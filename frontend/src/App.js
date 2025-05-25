@@ -44,8 +44,8 @@ export default function App() {
 
   // 打开各视图
   const openRecordings = (task) => setView({ type: "recordings", task });
-  const openLogs = (task)       => setView({ type: "logs", task });
-  const openForm = (task)       => setView({ type: "new", task });
+  const openLogs       = (task) => setView({ type: "logs",        task });
+  const openForm       = (task) => setView({ type: "new",         task });
 
   // 关闭“新建/编辑”并刷新列表
   const closeForm = () => {
@@ -58,12 +58,21 @@ export default function App() {
   // 播放回调
   const handlePlay = (url) => {
     // 如果是相对路径，前面加上 BASE API
-    const fullUrl =  `${process.env.REACT_APP_API || ""}${url}`;
+    const fullUrl = `${process.env.REACT_APP_API || ""}${url}`;
     setPlayUrl(fullUrl);
   };
 
   return (
       <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+        {/* —— 应用标题栏 —— */}
+        <AppBar position="static">
+          <Toolbar>
+            <Typography variant="h6" component="div">
+              Streamlink Recorder
+            </Typography>
+          </Toolbar>
+        </AppBar>
+
         {/* —— 主列表区（永远挂载，不会卸载） —— */}
         <Box sx={{ flex: 1, overflow: "auto" }}>
           <TaskList
