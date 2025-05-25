@@ -21,37 +21,67 @@ function VideoPlayer({ url, onClose }) {
     // 只針對 m3u8 用 Hls.js
     if (url && url.endsWith(".m3u8") && Hls.isSupported()) {
       console.log('正在為以下 URL 設定新的 HLS 實例:', url);
-      const hls = new Hls({debug: true});
-      hls.loadSource(url);
-      hls.attachMedia(video);
-      hlsRef.current = hls;
+      const hls = new Hls({
+        debug: true,
+        enableWorker: true,
+        lowLatencyMode: true
+      });
 
-      hls.on(Hls.Events.MANIFEST_PARSED, function() {
-        console.log("HLS manifest loaded successfully");
+      hls.on(Hls.Events.MANIFEST_LOADING, () => {
+        console.log('開始載入 HLS manifest');
+      });
+
+      hls.on(Hls.Events.MANIFEST_LOADED, (event, data) => {
+        console.log('HLS manifest 已載入:', data);
+      });
+
+      hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+        console.log('HLS manifest 解析完成:', {
+          levels: data.levels,
+          firstLevel: data.firstLevel,
+          stats: data.stats
+        });
         video.play();
       });
 
       hls.on(Hls.Events.ERROR, function (event, data) {
-        console.error('HLS.js ERROR:', data);
-        // Potentially more detailed error information here
+        console.error('HLS.js ERROR:', {
+          type: data.type,
+          details: data.details,
+          fatal: data.fatal,
+          url: data.url,
+          response: data.response,
+          error: data.error
+        });
+
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              console.error('fatal network error encountered', data.details);
-              // try to recover network error
+              console.error('致命網絡錯誤:', {
+                details: data.details,
+                response: data.response,
+                url: data.url
+              });
               hls.startLoad();
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
-              console.error('fatal media error encountered', data.details);
+              console.error('致命媒體錯誤:', {
+                details: data.details,
+                error: data.error
+              });
               hls.recoverMediaError();
               break;
             default:
-              // cannot recover
+              console.error('無法恢復的錯誤:', data);
               hls.destroy();
               break;
           }
         }
       });
+
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hlsRef.current = hls;
     }
 
     // 清理
