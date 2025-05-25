@@ -8,16 +8,19 @@ export default function VideoPlayer({ url, onClose }) {
   const hlsRef = useRef(null);
 
   useEffect(() => {
+    console.log('VideoPlayer useEffect 執行, url:', url);
     const video = videoRef.current;
-
+  
     // 清理上一個 Hls 實例
     if (hlsRef.current) {
+      console.log('正在銷毀上一個 HLS 實例');
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
-
+  
     // 只針對 m3u8 用 Hls.js
     if (url && url.endsWith(".m3u8") && Hls.isSupported()) {
+      console.log('正在為以下 URL 設定新的 HLS 實例:', url);
       const hls = new Hls({debug: true});
       hls.loadSource(url);
       hls.attachMedia(video);
@@ -40,7 +43,9 @@ export default function VideoPlayer({ url, onClose }) {
 
     // 清理
     return () => {
+      console.log('VideoPlayer useEffect 清理函式執行, url:', url);
       if (hlsRef.current) {
+        console.log('正在於清理函式中銷毀 HLS 實例');
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
