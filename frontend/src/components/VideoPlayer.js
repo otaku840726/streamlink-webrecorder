@@ -9,14 +9,22 @@ function VideoPlayer({ url, onClose }) {
 
   useEffect(() => {
     console.log('VideoPlayer useEffect 執行, url:', url);
-    const video = videoRef.current;
-  
+    
     // 清理上一個 Hls 實例
     if (hlsRef.current) {
       console.log('正在銷毀上一個 HLS 實例');
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
+    
+    // 確保 videoRef 有效後再繼續
+    if (!videoRef.current) {
+      console.error('videoRef.current 為 undefined，等待下一次渲染');
+      return;
+    }
+    
+    const video = videoRef.current;
+    console.log('videoRef.current 已找到:', video);
   
     // 只針對 m3u8 用 Hls.js
     if (url && url.endsWith(".m3u8") && Hls.isSupported()) {
@@ -41,7 +49,9 @@ function VideoPlayer({ url, onClose }) {
           firstLevel: data.firstLevel,
           stats: data.stats
         });
-        video.play();
+        if (videoRef.current) {
+          videoRef.current.play().catch(e => console.error('自動播放失敗:', e));
+        }
       });
 
       hls.on(Hls.Events.ERROR, function (event, data) {
@@ -79,9 +89,16 @@ function VideoPlayer({ url, onClose }) {
         }
       });
 
-      hls.loadSource(url);
-      hls.attachMedia(video);
-      hlsRef.current = hls;
+      try {
+        console.log('正在載入來源:', url);
+        hls.loadSource(url);
+        
+        console.log('正在附加到媒體元素, videoRef.current:', videoRef.current);
+        hls.attachMedia(video);
+        hlsRef.current = hls;
+      } catch (error) {
+        console.error('Hls.js 初始化過程中發生錯誤:', error);
+      }
     }
 
     // 清理
