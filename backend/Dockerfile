@@ -40,7 +40,6 @@ RUN git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git ffmpeg && \
       --enable-pthreads \
       --enable-shared \
       --enable-version3 \
-      --enable-libunistring \
       --enable-libfribidi \
       --disable-debug \
       --disable-doc && \
