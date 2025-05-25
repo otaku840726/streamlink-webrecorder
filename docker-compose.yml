@@ -4,8 +4,8 @@ services:
     build: ./backend
     container_name: streamlink-web-backend
     privileged: true
-    ports:
-      - "13052:8800"
+#    ports:
+#      - "13052:8800"
     devices:
       - /dev/dri/card0:/dev/dri/card0
       - /dev/dri/renderD128:/dev/dri/renderD128
@@ -19,8 +19,20 @@ services:
   frontend:
     build: ./frontend
     container_name: streamlink-web-frontend
-    ports:
-      - "13053:80"
+#    ports:
+#      - "13053:80"
     depends_on:
       - backend
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    container_name: streamlink-caddy
+    ports:
+      - "80:80"      # 将宿主机 80 端口映射到 Caddy 的 80
+    depends_on:
+      - backend
+      - frontend
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
     restart: unless-stopped
