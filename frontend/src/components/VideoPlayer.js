@@ -8,26 +8,24 @@ export default function VideoPlayer({ url, onClose }) {
   const hlsRef = useRef(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-  // 清理函數
   const cleanup = () => {
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.src = '';
+    }
   };
 
-  // 處理視頻加載
   const initializePlayer = () => {
-    if (!url) return;
-    if (!videoRef.current) {
-      console.error('VideoPlayer - video element not ready');
-      return;
-    }
+    if (!url || !videoRef.current) return;
 
     console.log('VideoPlayer - 開始載入 URL:', url);
-    cleanup(); // 在設置新 URL 前清理
+    cleanup();
 
-    if (url.endsWith('.m3u8')) {
+    // 如果是直播流 (m3u8)
+    if (url.includes('/hls/') && url.endsWith('.m3u8')) {
       if (!Hls.isSupported()) {
         console.error('VideoPlayer - HLS not supported');
         return;
@@ -37,8 +35,6 @@ export default function VideoPlayer({ url, onClose }) {
         debug: true,
         enableWorker: true,
         lowLatencyMode: true,
-        manifestLoadingTimeOut: 20000, // 增加載入超時時間
-        manifestLoadingMaxRetry: 3,    // 增加重試次數
       });
 
       hls.on(Hls.Events.MANIFEST_LOADING, () => {
@@ -54,15 +50,12 @@ export default function VideoPlayer({ url, onClose }) {
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              console.log('嘗試重新載入...');
-              hls.startLoad(); // 嘗試重新載入
+              hls.startLoad();
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
-              console.log('嘗試恢復媒體錯誤...');
-              hls.recoverMediaError(); // 嘗試恢復媒體錯誤
+              hls.recoverMediaError();
               break;
             default:
-              console.log('致命錯誤，清理資源...');
               cleanup();
               break;
           }
@@ -73,37 +66,38 @@ export default function VideoPlayer({ url, onClose }) {
         hls.loadSource(url);
         hls.attachMedia(videoRef.current);
         hlsRef.current = hls;
-
-        // 添加視頻事件監聽
-        videoRef.current.addEventListener('loadedmetadata', () => {
-          console.log('Video metadata loaded');
-        });
-
-        videoRef.current.addEventListener('error', (e) => {
-          console.error('Video error:', e);
-        });
       } catch (error) {
         console.error('HLS initialization error:', error);
+      }
+    } 
+    // 如果是錄製的視頻文件
+    else if (url.includes('/recordings/')) {
+      try {
+        let playUrl = url;
+        console.log('Playing recorded video file:', playUrl);
+        videoRef.current.src = playUrl;
+        videoRef.current.load();
+        videoRef.current.play().catch(e => {
+          console.error('Video playback error:', e);
+        });
+      } catch (error) {
+        console.error('Recorded video playback error:', error);
       }
     }
   };
 
-  // 處理 Dialog 開關
   useEffect(() => {
     if (url) {
       setIsDialogOpen(true);
     }
   }, [url]);
 
-  // 當 Dialog 完全打開後再初始化播放器
   useEffect(() => {
     if (isDialogOpen && videoRef.current) {
-      console.log('Dialog is open, initializing player...');
       initializePlayer();
     }
   }, [isDialogOpen, url]);
 
-  // 組件卸載時清理
   useEffect(() => {
     return cleanup;
   }, []);
@@ -120,18 +114,12 @@ export default function VideoPlayer({ url, onClose }) {
       onClose={handleClose}
       fullWidth 
       maxWidth="md"
-      TransitionProps={{
-        onEntered: () => {
-          console.log('Dialog transition completed');
-          initializePlayer(); // Dialog 完全打開後再次嘗試初始化
-        }
-      }}
     >
       <div style={{ 
         position: "relative", 
         background: "#000",
         width: "100%",
-        height: "calc(100vh - 64px)", // 調整高度
+        height: "calc(100vh - 64px)",
         maxHeight: "calc(100vh - 64px)",
       }}>
         <video
@@ -143,7 +131,7 @@ export default function VideoPlayer({ url, onClose }) {
           }}
           controls
           autoPlay
-          playsInline // 加入 playsInline 屬性
+          playsInline
         >
           不支援此格式
         </video>

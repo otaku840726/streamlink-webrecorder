@@ -92,9 +92,30 @@ export default function RecordingList({ task, onPlay }) {  // 添加 onPlay prop
               <TableCell>
                 <Button
                   size="small"
-                  onClick={() => onPlay(`/recordings/${task.id}/${rec.file}`)}  // 使用傳入的 onPlay
+                  onClick={() => {
+                    // 構建完整的播放 URL
+                    const baseUrl = `/recordings/${task.id}/${rec.file}`;
+                    const playUrl = rec.file.toLowerCase().endsWith('.ts') 
+                      ? `${baseUrl}/mp4`  // 修正：使用 /mp4 而不是 /live_mp4
+                      : baseUrl;
+                    onPlay(playUrl);
+                  }}
                 >
                   播放
+                </Button>
+                {/* 恢復刪除按鈕 */}
+                <Button
+                  size="small"
+                  color="error"
+                  sx={{ ml: 1 }}
+                  onClick={async () => {
+                    if (window.confirm("確定要刪除這個檔案嗎？")) {
+                      await api.deleteRecording(task.id, rec.file);
+                      reload();  // 刪除後重新載入列表
+                    }
+                  }}
+                >
+                  刪除
                 </Button>
               </TableCell>
             </TableRow>
