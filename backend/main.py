@@ -16,11 +16,15 @@ from fastapi.responses import FileResponse, StreamingResponse
 import shutil
 from fastapi.staticfiles import StaticFiles
 import psutil
+from PIL import Image
 
 
 HLS_DIR = "/hls"
 os.makedirs(HLS_DIR, exist_ok=True)
 hls_processes = {}  # task_id: subprocess.Popen
+
+THUMBNAILS_DIR = "/thumbnails"
+os.makedirs(THUMBNAILS_DIR, exist_ok=True)
 
 DATA_DIR = "/data"
 RECORDINGS_DIR = "/recordings"
@@ -64,6 +68,22 @@ def get_tasks():
 def save_tasks(tasks):
     with open(TASKS_FILE, "w") as f:
         json.dump(tasks, f, ensure_ascii=False, indent=2)
+
+def generate_thumbnail(video_path):
+    try:
+        # 获取视频文件名
+        video_filename = os.path.basename(video_path)
+        # 构建缩图文件路径
+        thumbnail_path = os.path.join(THUMBNAILS_DIR, f"{video_filename}.jpg")
+        # 打开视频文件
+        with Image.open(video_path) as img:
+            # 生成缩图
+            img.thumbnail((128, 128))
+            # 保存缩图
+            img.save(thumbnail_path)
+        print(f"缩图生成成功: {thumbnail_path}")
+    except Exception as e:
+        print(f"缩图生成失败: {str(e)}")
 
 def get_logfile(task_id):
     return os.path.join(LOG_DIR, f"{task_id}.log")
@@ -305,7 +325,13 @@ def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
             write_compression_log(f"原始 TS 文件已刪除")
         except Exception as e:
             write_compression_log(f"無法刪除原始 TS 文件: {str(e)}")
+        # —— 自动生成缩略图 —— 
+        try:
+            generate_thumbnail(mp4_file)
+        except Exception as e:
+            write_compression_log(f"缩略图生成失败: {e}")
         return mp4_file
+
     else:
         write_compression_log(f"轉換失敗: 找不到輸出文件")
         return None
@@ -673,6 +699,23 @@ def live_mp4_stream(task_id: str, filename: str):
             proc.stdout.close()
             proc.terminate()
     return StreamingResponse(remux(), media_type="video/mp4")
+
+
+# —— 新增：获取录像缩略图 —— 
+@app.get("/tasks/{task_id}/recordings/{filename}/thumbnail")
+def get_recording_thumbnail(task_id: str, filename: str):
+    # 缩略图文件名：<filename>.jpg
+    thumb_name = f"{filename}.jpg"
+    thumb_path = os.path.join(THUMBNAILS_DIR, thumb_name)
+    # 如果不存在，尝试从源文件生成
+    if not os.path.exists(thumb_path):
+        rec_dir = os.path.join(RECORDINGS_DIR, task_id)
+        source_file = os.path.join(rec_dir, filename)
+        if os.path.exists(source_file):
+            generate_thumbnail(source_file)
+    if os.path.exists(thumb_path):
+        return FileResponse(thumb_path, media_type="image/jpeg", filename=thumb_name)
+    raise HTTPException(status_code=404, detail="Thumbnail not found")
 
 signal.signal(signal.SIGTERM, handle_shutdown)
 signal.signal(signal.SIGINT, handle_shutdown)
