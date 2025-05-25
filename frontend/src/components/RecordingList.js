@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Typography, Card, CardContent, Button, CardMedia } from '@mui/material';
 import api from '../api';
 
-// 1. 独立出缩略图轮播组件
+// 缩略图轮播组件
 function ThumbnailCarousel({ taskId, filename }) {
   const [thumbs, setThumbs] = useState([]);
   const [index, setIndex] = useState(0);
@@ -22,7 +22,6 @@ function ThumbnailCarousel({ taskId, filename }) {
     }
   }, [thumbs]);
 
-  // 有缩略图才显示，否则占位
   const src = thumbs.length > 0 ? thumbs[index] : '';
   return (
       <CardMedia
@@ -30,7 +29,7 @@ function ThumbnailCarousel({ taskId, filename }) {
           height="140"
           image={src}
           alt={filename}
-          sx={{ backgroundColor: '#000' }} // 占位背景
+          sx={{ backgroundColor: '#000' }}
       />
   );
 }
@@ -109,7 +108,6 @@ export default function RecordingList({ task, onPlay }) {
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
           {recordings.map((rec) => (
               <Card key={rec.file} sx={{ minWidth: 275 }}>
-                {/* 2. 使用新版缩略图轮播 */}
                 <ThumbnailCarousel taskId={task.id} filename={rec.file} />
                 <CardContent>
                   <Typography variant="body2">{rec.file}</Typography>
@@ -130,6 +128,19 @@ export default function RecordingList({ task, onPlay }) {
                       }}
                   >
                     播放
+                  </Button>
+                  <Button
+                      size="small"
+                      color="error"
+                      sx={{ ml: 1 }}
+                      onClick={async () => {
+                        if (window.confirm('確定要刪除這個錄影檔？')) {
+                          await api.deleteRecording(task.id, rec.file);
+                          reload();
+                        }
+                      }}
+                  >
+                    刪除
                   </Button>
                 </CardContent>
               </Card>
