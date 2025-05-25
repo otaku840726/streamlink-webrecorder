@@ -720,4 +720,105 @@ def stop_recording(task_id: str):
         write_log(task_id, "manual_stop", "User requested stop")
         # 轉檔流程
         tasks = get_tasks()
-        t = next((x for
+        t = next((x for x in tasks if x["id"] == task_id), None)
+        if not t:
+            return {"ok": False, "msg": "Task not found"}
+        save_dir = os.path.join(RECORDINGS_DIR, t["save_dir"].strip("/"))
+        ts_files = [f for f in os.listdir(save_dir) if f.endswith(".ts")]
+        if ts_files:
+            latest_ts = max(ts_files, key=lambda f: os.path.getmtime(os.path.join(save_dir, f)))
+            ts_file_path = os.path.join(save_dir, latest_ts)
+            ts_to_mp4(ts_file_path)
+        return {"ok": True, "msg": "Stopped"}
+    return {"ok": False, "msg": "No active recording"}
+
+# ========== 新增: Docker/SIGTERM 優雅結束全部錄影 ==========
+def handle_shutdown(signum, frame):
+    print("Graceful shutdown: Stopping all recording processes")
+    for proc in list(active_recordings.values()):
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+    sys.exit(0)
+
+@app.get("/tasks/active_recordings")
+def get_active_recordings():
+    # 回傳目前有在錄影的 task id 列表
+    return list(active_recordings.keys())
+
+
+# 點播轉檔：TS → MP4 串流（下載或觀看用）
+@app.get("/tasks/{task_id}/recordings/{filename}/mp4")
+def stream_ts_to_mp4(task_id: str, filename: str):
+    tasks = get_tasks()
+    t = next((x for x in tasks if x["id"] == task_id), None)
+    if not t:
+        raise HTTPException(404)
+    save_dir = os.path.join(RECORDINGS_DIR, t["save_dir"].strip("/"))
+    file_path = os.path.join(save_dir, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(404)
+    if not filename.lower().endswith(".ts"):
+        raise HTTPException(400, "Only .ts can be remuxed")
+
+    def remux():
+        cmd = [
+            "ffmpeg",
+            "-i", file_path,
+            "-c:v", "copy", "-c:a", "copy",
+            "-f", "mp4",
+            "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+            "pipe:1"
+        ]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=10**6)
+        try:
+            while True:
+                data = proc.stdout.read(1024 * 64)
+                if not data:
+                    break
+                yield data
+        finally:
+            proc.stdout.close()
+            proc.terminate()
+    return StreamingResponse(remux(), media_type="video/mp4")
+
+# 錄影中即時觀看（TS 檔 growing file 也能邊錄邊播！）
+@app.get("/tasks/{task_id}/recordings/{filename}/live_mp4")
+def live_mp4_stream(task_id: str, filename: str):
+    tasks = get_tasks()
+    t = next((x for x in tasks if x["id"] == task_id), None)
+    if not t:
+        raise HTTPException(404)
+    save_dir = os.path.join(RECORDINGS_DIR, t["save_dir"].strip("/"))
+    file_path = os.path.join(save_dir, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(404)
+    if not filename.lower().endswith(".ts"):
+        raise HTTPException(400, "Only .ts can be live streamed")
+
+    def remux():
+        cmd = [
+            "ffmpeg",
+            "-re",
+            "-i", file_path,
+            "-c:v", "copy", "-c:a", "copy",
+            "-f", "mp4",
+            "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+            "pipe:1"
+        ]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=10**6)
+        try:
+            while True:
+                data = proc.stdout.read(1024 * 64)
+                if not data:
+                    break
+                yield data
+        finally:
+            proc.stdout.close()
+            proc.terminate()
+    return StreamingResponse(remux(), media_type="video/mp4")
+
+signal.signal(signal.SIGTERM, handle_shutdown)
+signal.signal(signal.SIGINT, handle_shutdown)
