@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     libopus-dev libvpx-dev libx264-dev libx265-dev \
     libvorbis-dev libxcb1-dev libxcb-shm0-dev libxcb-xfixes0-dev \
     libfribidi-dev libxml2-dev libbluray-dev \
+    ocl-icd-opencl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 編譯並安裝最新 ffmpeg（支援 qsv_params）
