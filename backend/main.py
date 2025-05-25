@@ -84,21 +84,263 @@ def read_logs(task_id):
     with open(logfile, "r") as f:
         return [json.loads(line) for line in f]
 
-def ts_to_mp4(ts_file):
+def write_compression_log(message):
+    print(message)
+
+def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
+    """
+    將 TS 檔轉換為高壓縮率的 MP4 檔 
+    
+    參數:
+    - ts_file: TS 文件路徑
+    - quality: 壓縮品質 ("extreme", "high", "medium", "low")
+    - use_segmentation: 是否使用分段處理（適用於大文件）
+    - task_id: 任務 ID，用於記錄日誌
+    
+    返回:
+    - 成功時返回 MP4 文件路徑，失敗時返回 None
+    """
     import os
     import subprocess
+    import shutil
+    import tempfile
+    import time
+    from datetime import datetime
+    
     if not os.path.exists(ts_file):
+        print(f"錯誤: 找不到 TS 文件 {ts_file}")
         return None
+    
+    # 獲取文件大小 (MB)
+    file_size_mb = os.path.getsize(ts_file) / (1024 * 1024)
+    print(f"開始處理 {ts_file}，大小: {file_size_mb:.2f} MB")
+    
+    # 如果任務 ID 為空，從文件路徑中提取
+    if task_id is None:
+        try:
+            # 假設目錄結構是 /recordings/任務目錄/文件名
+            task_id = os.path.basename(os.path.dirname(ts_file))
+        except:
+            task_id = "unknown"
+    
+    # 壓縮預設值 - 從極端壓縮到低壓縮
+    compression_presets = {
+        "extreme": {  # 極端壓縮，犧牲畫質
+            "video_codec": "libx265",
+            "crf": "32",
+            "preset": "veryslow",
+            "audio_codec": "aac",
+            "audio_bitrate": "48k",
+            "resolution": None,
+            "extra": ["-x265-params", "bframes=8:psy-rd=1:aq-mode=3:aq-strength=1.0:deblock=1,1:sao=1:rect=1:amp=1:limit-refs=1"]
+        },
+        "high": {  # 高壓縮，較低畫質
+            "video_codec": "libx265",
+            "crf": "28",
+            "preset": "veryslow",
+            "audio_codec": "aac",
+            "audio_bitrate": "64k",
+            "resolution": None,  # 保持原始解析度
+            "extra": ["-x265-params", "bframes=8:psy-rd=1:aq-mode=3:aq-strength=0.8:deblock=1,1"]
+        },
+        "medium": {  # 平衡壓縮和畫質
+            "video_codec": "libx265",
+            "crf": "25",
+            "preset": "slow",
+            "audio_codec": "aac",
+            "audio_bitrate": "96k",
+            "resolution": None,
+            "extra": ["-x265-params", "bframes=5:psy-rd=1"]
+        },
+        "low": {  # 低壓縮，較高畫質
+            "video_codec": "libx264",  # 使用 H.264 以獲得更好的兼容性
+            "crf": "23",
+            "preset": "medium",
+            "audio_codec": "aac",
+            "audio_bitrate": "128k",
+            "resolution": None,
+            "extra": []
+        }
+    }
+    
+    # 選擇壓縮設置
+    compression = compression_presets.get(quality, compression_presets["extreme"])
+    
+    # 輸出文件路徑
     mp4_file = ts_file.rsplit('.', 1)[0] + ".mp4"
-    ffmpeg_cmd = [
-        "ffmpeg", "-y", "-i", ts_file, "-c", "copy", mp4_file
-    ]
-    try:
-        subprocess.run(ffmpeg_cmd, capture_output=True, check=True)
-        os.remove(ts_file)  # 只留 mp4
+    start_time = time.time()
+    
+    # 日誌記錄
+    def write_compression_log(message):
+        if task_id:
+            write_log(task_id, "mp4_compression", message)
+        print(message)
+    
+    write_compression_log(f"開始轉換 {os.path.basename(ts_file)} 為 MP4，壓縮級別: {quality}")
+    
+    # 檢查文件大小，決定是否使用分段處理
+    large_file = file_size_mb > 500  # 大於 500MB 的文件考慮使用分段處理
+    
+    if large_file and use_segmentation:
+        write_compression_log(f"檔案較大 ({file_size_mb:.2f}MB)，使用分段處理")
+        
+        # 分段處理大文件
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # 1. 分割成小段 (每段 2 分鐘)
+            segment_time = 120
+            segments_cmd = [
+                "ffmpeg", "-i", ts_file,
+                "-f", "segment",
+                "-segment_time", str(segment_time),
+                "-reset_timestamps", "1",
+                "-c", "copy",
+                os.path.join(temp_dir, "segment_%03d.ts")
+            ]
+            
+            write_compression_log("將大文件分段...")
+            subprocess.run(segments_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            
+            # 2. 轉換每個分段
+            segments = sorted([f for f in os.listdir(temp_dir) if f.startswith("segment_") and f.endswith(".ts")])
+            write_compression_log(f"共分為 {len(segments)} 個分段，逐一處理...")
+            
+            mp4_segments = []
+            for i, segment in enumerate(segments):
+                segment_path = os.path.join(temp_dir, segment)
+                mp4_segment = segment_path.replace(".ts", ".mp4")
+                
+                # 構建分段轉換命令
+                segment_cmd = ["ffmpeg", "-y", "-i", segment_path]
+                
+                # 添加解析度縮放（如果有）
+                if compression["resolution"]:
+                    segment_cmd.extend(["-vf", compression["resolution"]])
+                
+                # 添加視頻和音頻編碼設置
+                segment_cmd.extend([
+                    "-c:v", compression["video_codec"],
+                    "-crf", compression["crf"],
+                    "-preset", compression["preset"],
+                    "-c:a", compression["audio_codec"],
+                    "-b:a", compression["audio_bitrate"],
+                    "-movflags", "+faststart",
+                    "-pix_fmt", "yuv420p"
+                ])
+                
+                # 添加額外參數
+                if compression["extra"]:
+                    segment_cmd.extend(compression["extra"])
+                
+                # 添加輸出文件
+                segment_cmd.append(mp4_segment)
+                
+                # 執行轉換
+                write_compression_log(f"處理分段 {i+1}/{len(segments)}...")
+                try:
+                    subprocess.run(segment_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    mp4_segments.append(mp4_segment)
+                except subprocess.CalledProcessError as e:
+                    write_compression_log(f"分段 {i+1} 處理失敗: {e}")
+                    continue
+            
+            # 3. 合併 MP4 分段
+            if not mp4_segments:
+                write_compression_log("所有分段處理失敗")
+                return None
+            
+            write_compression_log("合併所有處理完的分段...")
+            concat_file = os.path.join(temp_dir, "concat.txt")
+            
+            with open(concat_file, "w") as f:
+                for mp4_segment in mp4_segments:
+                    f.write(f"file '{mp4_segment}'\n")
+            
+            concat_cmd = [
+                "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                "-i", concat_file,
+                "-c", "copy",
+                mp4_file
+            ]
+            subprocess.run(concat_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        except Exception as e:
+            write_compression_log(f"分段處理過程中出錯: {str(e)}")
+            return None
+        finally:
+            # 清理臨時目錄
+            try:
+                shutil.rmtree(temp_dir)
+            except:
+                pass
+    
+    else:
+        # 直接處理單個文件
+        try:
+            # 構建 ffmpeg 命令
+            ffmpeg_cmd = ["ffmpeg", "-y", "-i", ts_file]
+            
+            # 添加解析度縮放（如果有）
+            if compression["resolution"]:
+                ffmpeg_cmd.extend(["-vf", compression["resolution"]])
+            
+            # 添加視頻和音頻編碼設置
+            ffmpeg_cmd.extend([
+                "-c:v", compression["video_codec"],
+                "-crf", compression["crf"],
+                "-preset", compression["preset"],
+                "-c:a", compression["audio_codec"],
+                "-b:a", compression["audio_bitrate"],
+                "-movflags", "+faststart",
+                "-pix_fmt", "yuv420p"
+            ])
+            
+            # 添加額外參數
+            if compression["extra"]:
+                ffmpeg_cmd.extend(compression["extra"])
+            
+            # 添加輸出文件
+            ffmpeg_cmd.append(mp4_file)
+            
+            # 執行轉換
+            write_compression_log(f"執行單文件轉換，命令: {' '.join(ffmpeg_cmd)}")
+            subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr.decode("utf-8", errors="ignore") if e.stderr else ""
+            write_compression_log(f"轉換失敗: {stderr}")
+            return None
+        except Exception as e:
+            write_compression_log(f"未知錯誤: {str(e)}")
+            return None
+    
+    # 檢查轉換結果
+    if os.path.exists(mp4_file):
+        original_size = os.path.getsize(ts_file)
+        compressed_size = os.path.getsize(mp4_file)
+        compression_ratio = (1 - compressed_size / original_size) * 100
+        elapsed_time = time.time() - start_time
+        
+        result_msg = (
+            f"轉換成功: {os.path.basename(mp4_file)}\n"
+            f"原始大小: {original_size/1024/1024:.2f}MB\n"
+            f"壓縮大小: {compressed_size/1024/1024:.2f}MB\n"
+            f"壓縮比: {compression_ratio:.2f}%\n"
+            f"節省空間: {(original_size-compressed_size)/1024/1024:.2f}MB\n"
+            f"處理時間: {elapsed_time:.1f}秒"
+        )
+        write_compression_log(result_msg)
+        
+        # 轉換成功後刪除原始 TS 文件
+        try:
+            os.remove(ts_file)
+            write_compression_log(f"原始 TS 文件已刪除")
+        except Exception as e:
+            write_compression_log(f"無法刪除原始 TS 文件: {str(e)}")
+        
         return mp4_file
-    except Exception as e:
-        print(f"MP4 conversion failed: {e}")
+    else:
+        write_compression_log(f"轉換失敗: 找不到輸出文件")
         return None
         
 # ========== 重點1：全域進程表 ==========
