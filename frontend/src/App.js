@@ -89,6 +89,7 @@ export default function App() {
             open={view?.type === "recordings"}
             fullScreen={isMobile}
             onClose={closeDialog}
+            maxWidth="lg"
         >
           <AppBar position="static">
             <Toolbar>
@@ -110,6 +111,7 @@ export default function App() {
             open={view?.type === "logs"}
             fullScreen={isMobile}
             onClose={closeDialog}
+            maxWidth="lg"
         >
           <AppBar position="static">
             <Toolbar>
