@@ -29,7 +29,7 @@ services:
     image: caddy:2
     container_name: streamlink-caddy
     ports:
-      - "80:80"      # 将宿主机 80 端口映射到 Caddy 的 80
+      - "13052:80"      # 将宿主机 80 端口映射到 Caddy 的 80
     depends_on:
       - backend
       - frontend
