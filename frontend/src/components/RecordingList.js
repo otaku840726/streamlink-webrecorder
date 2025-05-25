@@ -77,7 +77,7 @@ export default function RecordingList({ task, onPlay }) {
             <CardMedia
               component="img"
               height="140"
-              image={`/thumbnails/${rec.file}.jpg`} // 假設縮圖 URL
+              image={`/tasks/${task.id}/recordings/${rec.file}/thumbnail`} // 假設縮圖 URL
               alt={rec.file}
             />
             <CardContent>
