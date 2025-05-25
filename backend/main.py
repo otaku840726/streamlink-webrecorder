@@ -69,22 +69,6 @@ def save_tasks(tasks):
     with open(TASKS_FILE, "w") as f:
         json.dump(tasks, f, ensure_ascii=False, indent=2)
 
-def generate_thumbnail(video_path):
-    try:
-        # 获取视频文件名
-        video_filename = os.path.basename(video_path)
-        # 构建缩图文件路径
-        thumbnail_path = os.path.join(THUMBNAILS_DIR, f"{video_filename}.jpg")
-        # 打开视频文件
-        with Image.open(video_path) as img:
-            # 生成缩图
-            img.thumbnail((128, 128))
-            # 保存缩图
-            img.save(thumbnail_path)
-        print(f"缩图生成成功: {thumbnail_path}")
-    except Exception as e:
-        print(f"缩图生成失败: {str(e)}")
-
 def get_logfile(task_id):
     return os.path.join(LOG_DIR, f"{task_id}.log")
 
@@ -495,6 +479,33 @@ def stop_hls_stream(task_id):
         except Exception:
             pass
 
+def generate_thumbnail(video_path, interval: int = 60, size: int = 128):
+    """
+    从视频中每隔 interval 秒抽帧生成缩略图，
+    输出到目录 THUMBNAILS_DIR/{basename}/ 下，
+    文件名格式为 <basename>_001.jpg、<basename>_002.jpg…
+    """
+    import subprocess
+    basename = os.path.basename(video_path)
+    name, _ = os.path.splitext(basename)
+    out_dir = os.path.join(THUMBNAILS_DIR, name)
+    os.makedirs(out_dir, exist_ok=True)
+    # 构建 ffmpeg 命令：fps=1/interval 每秒取 1/interval 帧
+    cmd = [
+        "ffmpeg", "-i", video_path,
+        "-vf", f"fps=1/{interval},scale={size}:-1:flags=lanczos",
+        "-qscale:v", "2",
+        os.path.join(out_dir, f"{name}_%03d.jpg")
+    ]
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        print(f"缩略图生成成功: {out_dir}")
+        return out_dir
+    except subprocess.CalledProcessError as e:
+        err = e.stderr.decode('utf-8', errors='ignore')
+        print(f"缩略图生成失败: {err}")
+        return None
+
 
 @app.on_event("startup")
 def startup_event():
@@ -702,23 +713,28 @@ def live_mp4_stream(task_id: str, filename: str):
 
 
 # —— 新增：获取录像缩略图 —— 
-@app.get("/tasks/{task_id}/recordings/{filename}/thumbnail")
-def get_recording_thumbnail(task_id: str, filename: str):
-    # 缩略图文件名：<filename>.jpg
-    thumb_name = f"{filename}.jpg"
-    thumb_path = os.path.join(THUMBNAILS_DIR, thumb_name)
-    # 如果不存在，尝试从源文件生成
-    if not os.path.exists(thumb_path):
-        tasks = get_tasks()
-        t = next((x for x in tasks if x["id"] == task_id), None)
-        if t:
-            save_dir = os.path.join(RECORDINGS_DIR, t["save_dir"].strip("/"))
-            source_file = os.path.join(save_dir, filename)
-            if os.path.exists(source_file):
-                generate_thumbnail(source_file)
-    if os.path.exists(thumb_path):
-        return FileResponse(thumb_path, media_type="image/jpeg", filename=thumb_name)
-    raise HTTPException(status_code=404, detail="Thumbnail not found")
+@app.get("/tasks/{task_id}/recordings/{filename}/thumbnails")
+def list_thumbnails(task_id: str, filename: str):
+    """
+    列出指定录像文件的所有缩略图 URL，如果不存在则生成。
+    返回格式：
+      ["/thumbnails/<basename>/<basename>_001.jpg", ...]
+    """
+    name, _ = os.path.splitext(filename)
+    # 缩略图目录
+    thumb_dir = os.path.join(THUMBNAILS_DIR, name)
+    # 若目录不存在则尝试生成
+    if not os.path.isdir(thumb_dir):
+        rec_dir = os.path.join(RECORDINGS_DIR, task_id)
+        source_file = os.path.join(rec_dir, filename)
+        if os.path.exists(source_file):
+            generate_thumbnail(source_file)
+    if not os.path.isdir(thumb_dir):
+        raise HTTPException(status_code=404, detail="Thumbnails not found")
+    # 列出 JPG 文件，并按文件名排序
+    files = sorted(f for f in os.listdir(thumb_dir) if f.lower().endswith('.jpg'))
+    # 返回静态挂载路径
+    return [f"/thumbnails/{name}/{f}" for f in files]
 
 signal.signal(signal.SIGTERM, handle_shutdown)
 signal.signal(signal.SIGINT, handle_shutdown)
