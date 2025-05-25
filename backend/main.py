@@ -1,3 +1,4 @@
+```python
 import os
 import json
 import threading
@@ -77,19 +78,73 @@ def write_log(task_id, event, msg=""):
             "msg": msg
         }, ensure_ascii=False) + "\n")
 
-def read_logs(task_id):
+def read_logs(task_id, limit=20):
+    """
+    從文件末尾讀取最新的 n 條日誌記錄
+    
+    參數:
+    - task_id: 任務ID
+    - limit: 返回的日誌條數上限，默認20條
+    
+    返回:
+    - 倒序排列的最新日誌記錄列表
+    """
     logfile = get_logfile(task_id)
     if not os.path.exists(logfile):
         return []
-    with open(logfile, "r") as f:
-        return [json.loads(line) for line in f]
+    
+    # 使用逆向讀取文件的方式獲取最新日誌
+    logs = []
+    try:
+        with open(logfile, 'rb') as f:
+            # 先將文件指針移到末尾
+            f.seek(0, 2)
+            file_size = f.tell()
+            
+            # 從文件末尾開始讀取
+            pointer = file_size
+            line_count = 0
+            
+            # 逆向讀取直到達到限制或文件開頭
+            while pointer > 0 and line_count < limit:
+                # 向前移動指針，最多移動 8KB
+                chunk_size = min(8192, pointer)
+                pointer -= chunk_size
+                f.seek(pointer)
+                
+                # 讀取當前塊的數據
+                data = f.read(chunk_size + (file_size - pointer - chunk_size))
+                
+                # 按行分割並處理不完整行
+                lines = data.split(b'\n')
+                
+                # 如果不是第一塊且指針不在文件開頭，丟棄第一行（可能不完整）
+                if pointer > 0 and line_count > 0:
+                    lines = lines[1:]
+                
+                # 處理每一行
+                for line in reversed(lines):
+                    if not line:  # 跳過空行
+                        continue
+                    try:
+                        log = json.loads(line.decode('utf-8'))
+                        logs.append(log)
+                        line_count += 1
+                        if line_count >= limit:
+                            break
+                    except json.JSONDecodeError:
+                        continue
+    except Exception as e:
+        print(f"讀取日誌錯誤: {str(e)}")
+    
+    return logs
 
 def write_compression_log(message):
     print(message)
 
 def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
     """
-    將 TS 檔轉換為高壓縮率的 MP4 檔 
+    將 TS 檔轉換為高壓縮率的 MP4 檔，支援 Intel QSV 硬體加速
     
     參數:
     - ts_file: TS 文件路徑
@@ -123,39 +178,61 @@ def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
         except:
             task_id = "unknown"
     
+    # 嘗試檢測是否支援 Intel QSV
+    try:
+        qsv_check = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        has_qsv = "h264_qsv" in qsv_check.stdout
+        has_hevc_qsv = "hevc_qsv" in qsv_check.stdout
+    except Exception:
+        has_qsv = False
+        has_hevc_qsv = False
+    
     # 壓縮預設值 - 從極端壓縮到低壓縮
     compression_presets = {
-        "extreme": {  # 極端壓縮，犧牲畫質
-            "video_codec": "libx265",
-            "crf": "32",
-            "preset": "veryslow",
+        "extreme": {
+            "video_codec": "hevc_qsv" if has_hevc_qsv else "libx265",
+            "crf": "32" if not has_hevc_qsv else None,  # QSV 不使用 CRF
+            "bitrate": "1000k" if has_hevc_qsv else None,  # QSV 使用碼率控制
+            "preset": "veryslow" if not has_hevc_qsv else None,  # QSV 不使用此預設
+            "qsv_params": ["global_quality=28", "preset=veryslow"] if has_hevc_qsv else [],
             "audio_codec": "aac",
             "audio_bitrate": "48k",
             "resolution": None,
-            "extra": ["-x265-params", "bframes=8:psy-rd=1:aq-mode=3:aq-strength=1.0:deblock=1,1:sao=1:rect=1:amp=1:limit-refs=1"]
+            "extra": [] if has_hevc_qsv else ["-x265-params", "bframes=8:psy-rd=1:aq-mode=3:aq-strength=1.0:deblock=1,1:sao=1:rect=1:amp=1:limit-refs=1"]
         },
-        "high": {  # 高壓縮，較低畫質
-            "video_codec": "libx265",
-            "crf": "28",
-            "preset": "veryslow",
+        "high": {
+            "video_codec": "hevc_qsv" if has_hevc_qsv else "libx265",
+            "crf": "28" if not has_hevc_qsv else None,
+            "bitrate": "2000k" if has_hevc_qsv else None,
+            "preset": "veryslow" if not has_hevc_qsv else None,
+            "qsv_params": ["global_quality=23", "preset=slow"] if has_hevc_qsv else [],
             "audio_codec": "aac",
             "audio_bitrate": "64k",
-            "resolution": None,  # 保持原始解析度
-            "extra": ["-x265-params", "bframes=8:psy-rd=1:aq-mode=3:aq-strength=0.8:deblock=1,1"]
+            "resolution": None,
+            "extra": [] if has_hevc_qsv else ["-x265-params", "bframes=8:psy-rd=1:aq-mode=3:aq-strength=0.8:deblock=1,1"]
         },
-        "medium": {  # 平衡壓縮和畫質
-            "video_codec": "libx265",
-            "crf": "25",
-            "preset": "slow",
+        "medium": {
+            "video_codec": "h264_qsv" if has_qsv else "libx265",
+            "crf": "25" if not has_qsv else None,
+            "bitrate": "3000k" if has_qsv else None,
+            "preset": "slow" if not has_qsv else None,
+            "qsv_params": ["global_quality=18", "preset=medium"] if has_qsv else [],
             "audio_codec": "aac",
             "audio_bitrate": "96k",
             "resolution": None,
-            "extra": ["-x265-params", "bframes=5:psy-rd=1"]
+            "extra": [] if has_qsv else ["-x265-params", "bframes=5:psy-rd=1"]
         },
-        "low": {  # 低壓縮，較高畫質
-            "video_codec": "libx264",  # 使用 H.264 以獲得更好的兼容性
-            "crf": "23",
-            "preset": "medium",
+        "low": {
+            "video_codec": "h264_qsv" if has_qsv else "libx264",
+            "crf": "23" if not has_qsv else None,
+            "bitrate": "4000k" if has_qsv else None,
+            "preset": "medium" if not has_qsv else None,
+            "qsv_params": ["global_quality=15", "preset=fast"] if has_qsv else [],
             "audio_codec": "aac",
             "audio_bitrate": "128k",
             "resolution": None,
@@ -176,7 +253,9 @@ def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
             write_log(task_id, "mp4_compression", message)
         print(message)
     
-    write_compression_log(f"開始轉換 {os.path.basename(ts_file)} 為 MP4，壓縮級別: {quality}")
+    # 記錄使用的編碼器
+    hw_accel_msg = "使用 Intel QSV 硬體加速" if (has_qsv and "qsv" in compression["video_codec"]) else "使用軟體編碼"
+    write_compression_log(f"開始轉換 {os.path.basename(ts_file)} 為 MP4，壓縮級別: {quality}，{hw_accel_msg}")
     
     # 檢查文件大小，決定是否使用分段處理
     large_file = file_size_mb > 500  # 大於 500MB 的文件考慮使用分段處理
@@ -217,11 +296,23 @@ def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
                 if compression["resolution"]:
                     segment_cmd.extend(["-vf", compression["resolution"]])
                 
-                # 添加視頻和音頻編碼設置
+                # 添加 QSV 專用參數
+                if "qsv" in compression["video_codec"] and compression["qsv_params"]:
+                    segment_cmd.extend(["-load_plugin", "hevc_hw", "-init_hw_device", "qsv=hw", "-filter_hw_device", "hw"])
+                    qsv_params = ":".join(compression["qsv_params"])
+                    segment_cmd.extend(["-c:v", compression["video_codec"], "-qsv_params", qsv_params])
+                    if compression["bitrate"]:
+                        segment_cmd.extend(["-b:v", compression["bitrate"]])
+                else:
+                    # 添加視頻編碼設置
+                    segment_cmd.extend(["-c:v", compression["video_codec"]])
+                    if compression["crf"]:
+                        segment_cmd.extend(["-crf", compression["crf"]])
+                    if compression["preset"]:
+                        segment_cmd.extend(["-preset", compression["preset"]])
+                
+                # 添加音頻編碼設置
                 segment_cmd.extend([
-                    "-c:v", compression["video_codec"],
-                    "-crf", compression["crf"],
-                    "-preset", compression["preset"],
                     "-c:a", compression["audio_codec"],
                     "-b:a", compression["audio_bitrate"],
                     "-movflags", "+faststart",
@@ -241,7 +332,8 @@ def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
                     subprocess.run(segment_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     mp4_segments.append(mp4_segment)
                 except subprocess.CalledProcessError as e:
-                    write_compression_log(f"分段 {i+1} 處理失敗: {e}")
+                    stderr = e.stderr.decode("utf-8", errors="ignore") if e.stderr else ""
+                    write_compression_log(f"分段 {i+1} 處理失敗: {stderr[:200]}")
                     continue
             
             # 3. 合併 MP4 分段
@@ -280,15 +372,36 @@ def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
             # 構建 ffmpeg 命令
             ffmpeg_cmd = ["ffmpeg", "-y", "-i", ts_file]
             
-            # 添加解析度縮放（如果有）
-            if compression["resolution"]:
-                ffmpeg_cmd.extend(["-vf", compression["resolution"]])
+            # 如果使用 QSV，添加 QSV 專用參數
+            if "qsv" in compression["video_codec"]:
+                ffmpeg_cmd.extend(["-init_hw_device", "qsv=hw", "-filter_hw_device", "hw"])
+                
+                # 添加解析度縮放（如果有）
+                if compression["resolution"]:
+                    ffmpeg_cmd.extend(["-vf", f"format=nv12,hwupload=extra_hw_frames=64,scale_qsv={compression['resolution']},hwdownload,format=nv12"])
+                else:
+                    ffmpeg_cmd.extend(["-vf", "format=nv12,hwupload=extra_hw_frames=64,hwdownload,format=nv12"])
+                
+                # 添加 QSV 專用視頻編碼設置
+                ffmpeg_cmd.extend(["-c:v", compression["video_codec"]])
+                if compression["qsv_params"]:
+                    qsv_params = ":".join(compression["qsv_params"])
+                    ffmpeg_cmd.extend(["-qsv_params", qsv_params])
+                if compression["bitrate"]:
+                    ffmpeg_cmd.extend(["-b:v", compression["bitrate"]])
+            else:
+                # 使用標準軟體編碼
+                if compression["resolution"]:
+                    ffmpeg_cmd.extend(["-vf", compression["resolution"]])
+                
+                ffmpeg_cmd.extend([
+                    "-c:v", compression["video_codec"],
+                    "-crf", compression["crf"],
+                    "-preset", compression["preset"]
+                ])
             
-            # 添加視頻和音頻編碼設置
+            # 添加音頻編碼設置
             ffmpeg_cmd.extend([
-                "-c:v", compression["video_codec"],
-                "-crf", compression["crf"],
-                "-preset", compression["preset"],
                 "-c:a", compression["audio_codec"],
                 "-b:a", compression["audio_bitrate"],
                 "-movflags", "+faststart",
@@ -308,7 +421,7 @@ def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
         
         except subprocess.CalledProcessError as e:
             stderr = e.stderr.decode("utf-8", errors="ignore") if e.stderr else ""
-            write_compression_log(f"轉換失敗: {stderr}")
+            write_compression_log(f"轉換失敗: {stderr[:500]}")
             return None
         except Exception as e:
             write_compression_log(f"未知錯誤: {str(e)}")
@@ -327,7 +440,8 @@ def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
             f"壓縮大小: {compressed_size/1024/1024:.2f}MB\n"
             f"壓縮比: {compression_ratio:.2f}%\n"
             f"節省空間: {(original_size-compressed_size)/1024/1024:.2f}MB\n"
-            f"處理時間: {elapsed_time:.1f}秒"
+            f"處理時間: {elapsed_time:.1f}秒\n"
+            f"{hw_accel_msg}"
         )
         write_compression_log(result_msg)
         
@@ -607,105 +721,4 @@ def stop_recording(task_id: str):
         write_log(task_id, "manual_stop", "User requested stop")
         # 轉檔流程
         tasks = get_tasks()
-        t = next((x for x in tasks if x["id"] == task_id), None)
-        if not t:
-            return {"ok": False, "msg": "Task not found"}
-        save_dir = os.path.join(RECORDINGS_DIR, t["save_dir"].strip("/"))
-        ts_files = [f for f in os.listdir(save_dir) if f.endswith(".ts")]
-        if ts_files:
-            latest_ts = max(ts_files, key=lambda f: os.path.getmtime(os.path.join(save_dir, f)))
-            ts_file_path = os.path.join(save_dir, latest_ts)
-            ts_to_mp4(ts_file_path)
-        return {"ok": True, "msg": "Stopped"}
-    return {"ok": False, "msg": "No active recording"}
-
-# ========== 新增: Docker/SIGTERM 優雅結束全部錄影 ==========
-def handle_shutdown(signum, frame):
-    print("Graceful shutdown: Stopping all recording processes")
-    for proc in list(active_recordings.values()):
-        if proc and proc.poll() is None:
-            try:
-                proc.terminate()
-            except Exception:
-                pass
-    sys.exit(0)
-
-@app.get("/tasks/active_recordings")
-def get_active_recordings():
-    # 回傳目前有在錄影的 task id 列表
-    return list(active_recordings.keys())
-
-
-# 點播轉檔：TS → MP4 串流（下載或觀看用）
-@app.get("/tasks/{task_id}/recordings/{filename}/mp4")
-def stream_ts_to_mp4(task_id: str, filename: str):
-    tasks = get_tasks()
-    t = next((x for x in tasks if x["id"] == task_id), None)
-    if not t:
-        raise HTTPException(404)
-    save_dir = os.path.join(RECORDINGS_DIR, t["save_dir"].strip("/"))
-    file_path = os.path.join(save_dir, filename)
-    if not os.path.exists(file_path):
-        raise HTTPException(404)
-    if not filename.lower().endswith(".ts"):
-        raise HTTPException(400, "Only .ts can be remuxed")
-
-    def remux():
-        cmd = [
-            "ffmpeg",
-            "-i", file_path,
-            "-c:v", "copy", "-c:a", "copy",
-            "-f", "mp4",
-            "-movflags", "frag_keyframe+empty_moov+default_base_moof",
-            "pipe:1"
-        ]
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=10**6)
-        try:
-            while True:
-                data = proc.stdout.read(1024 * 64)
-                if not data:
-                    break
-                yield data
-        finally:
-            proc.stdout.close()
-            proc.terminate()
-    return StreamingResponse(remux(), media_type="video/mp4")
-
-# 錄影中即時觀看（TS 檔 growing file 也能邊錄邊播！）
-@app.get("/tasks/{task_id}/recordings/{filename}/live_mp4")
-def live_mp4_stream(task_id: str, filename: str):
-    tasks = get_tasks()
-    t = next((x for x in tasks if x["id"] == task_id), None)
-    if not t:
-        raise HTTPException(404)
-    save_dir = os.path.join(RECORDINGS_DIR, t["save_dir"].strip("/"))
-    file_path = os.path.join(save_dir, filename)
-    if not os.path.exists(file_path):
-        raise HTTPException(404)
-    if not filename.lower().endswith(".ts"):
-        raise HTTPException(400, "Only .ts can be live streamed")
-
-    def remux():
-        cmd = [
-            "ffmpeg",
-            "-re",
-            "-i", file_path,
-            "-c:v", "copy", "-c:a", "copy",
-            "-f", "mp4",
-            "-movflags", "frag_keyframe+empty_moov+default_base_moof",
-            "pipe:1"
-        ]
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=10**6)
-        try:
-            while True:
-                data = proc.stdout.read(1024 * 64)
-                if not data:
-                    break
-                yield data
-        finally:
-            proc.stdout.close()
-            proc.terminate()
-    return StreamingResponse(remux(), media_type="video/mp4")
-    
-signal.signal(signal.SIGTERM, handle_shutdown)
-signal.signal(signal.SIGINT, handle_shutdown)
+        t = next((x for
