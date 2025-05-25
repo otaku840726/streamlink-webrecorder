@@ -13,6 +13,7 @@ export default function App() {
   const [selectedTask, setSelectedTask] = useState(null);
   const [tab, setTab] = useState("tasks");
   const [openForm, setOpenForm] = useState(false);
+  const [scrollPos, setScrollPos] = useState(0);
 
   const reloadTasks = async () => {
     setTasks(await api.listTasks());
@@ -35,6 +36,9 @@ export default function App() {
   };
 
   const handleBack = () => {
+    // 恢复滚动位置
+    const currentScroll = window.pageYOffset || document.documentElement.scrollTop;
+    setScrollPos(currentScroll);
     setTab("tasks");
     setSelectedTask(null);
     setPlayUrl(null);
