@@ -211,8 +211,8 @@ def start_hls_stream(task: Task):
         "-i", "pipe:0",
         "-c:v", "copy", "-c:a", "copy",
         "-f", "hls",
-        "-hls_time", "6",
-        "-hls_list_size", "10",
+        "-hls_time", "1",
+        "-hls_list_size", "2",
         "-hls_flags", "delete_segments+program_date_time",
         os.path.join(task_hls_dir, "stream.m3u8")
     ]
