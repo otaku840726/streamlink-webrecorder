@@ -6,7 +6,7 @@
 :80 {
     # 所有 /tasks、/hls、/thumbnails 请求都 Proxy 到后端
     @streamlink-api {
-        path /task* /hls* /thumbnails*
+        path /task* /hls* /thumbnails* /conversion_status*
     }
     handle @streamlink-api {
         reverse_proxy backend:8800
