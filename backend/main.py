@@ -185,6 +185,7 @@ def get_duration(ts_file):
 
 # 添加在 ts_to_mp4 函数中，修改函数签名和内容
 def ts_to_mp4(ts_file, quality="high", task_id=None):
+    import re  # 確保 re 模塊已導入
     filename = os.path.basename(ts_file)
     task_key = f"{task_id}_{filename}"
     base, _ = os.path.splitext(ts_file)
@@ -226,25 +227,43 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
         "-c:a", "copy",
         mp4_file
     ]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-
-    # 逐行读取进度信息
-    for line in proc.stdout:
-        # ffmpeg 会输出类似 "out_time_ms=1234567"
-        if line.startswith("out_time_ms="):
-            out_ms = int(line.split("=", 1)[1].strip())
-            pct = (out_ms / (total_duration * 1000)) * 100
-            # 限制在 0–100
-            conversion_tasks[task_key]["progress"] = min(100, max(0, pct))
-
+    
+    # 使用線程來讀取進程輸出，確保實時更新進度
+    def read_output(proc):
+        for line in iter(proc.stdout.readline, ''):
+            if not line:  # 如果讀取到空行，說明流結束了
+                break
+            # ffmpeg 会输出类似 "out_time_ms=1234567"
+            if line.startswith("out_time_ms="):
+                try:
+                    out_ms = int(line.split("=", 1)[1].strip())
+                    pct = (out_ms / (total_duration * 1000)) * 100
+                    # 限制在 0–100
+                    conversion_tasks[task_key]["progress"] = min(100, max(0, pct))
+                    print(f"轉碼進度: {pct:.2f}%")
+                except Exception as e:
+                    print(f"處理進度時出錯: {str(e)}")
+    
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True)
+    
+    # 啟動讀取線程
+    output_thread = threading.Thread(target=read_output, args=(proc,), daemon=True)
+    output_thread.start()
+    
+    # 等待進程完成
     proc.wait()
+    output_thread.join(timeout=1)  # 給讀取線程最多1秒鐘完成
 
     # 转码完成／失败后收尾
     if proc.returncode == 0 and os.path.exists(mp4_file):
+        original_size = os.path.getsize(ts_file) / (1024*1024)
+        new_size = os.path.getsize(mp4_file) / (1024*1024)
         conversion_tasks[task_key].update({
             "status": "completed",
             "progress": 100,
-            "end_time": time.time()
+            "end_time": time.time(),
+            "original_size": original_size,
+            "new_size": new_size
         })
         try: os.remove(ts_file)
         except: pass
