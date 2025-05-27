@@ -200,6 +200,24 @@ def get_first_pts(ts_file):
         print(f"[get_first_pts] error: {e}")
     return 0.0
 
+def get_total_frames(ts_file):
+    """
+    用 ffprobe 获取视频总帧数，用于进度计算
+    """
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-count_frames",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=nb_read_frames",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        ts_file
+    ]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        return int(result.stdout.strip())
+    except:
+        return None
+
 
 # 添加在 ts_to_mp4 函数中，修改函数签名和内容
 def ts_to_mp4(ts_file, quality="high", task_id=None):
@@ -222,17 +240,9 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
         "quality": quality
     }
 
-    # 先拿总时长，必须成功，否则无法计算中间进度
-    total_duration = get_duration(ts_file)
-    print(f"[ts_to_mp4] get_duration({ts_file}) = {total_duration}")
-    if not total_duration or total_duration < 1.0:
-        print(f"[ts_to_mp4] 無法獲取 {ts_file} 的時長，放棄轉碼")
-        conversion_tasks[task_key].update({
-            "status": "failed",
-            "end_time": time.time(),
-            "progress": 0
-        })
-        return None
+    # 只拿总帧数，用于进度计算
+    total_frames = get_total_frames(ts_file)
+    print(f"[ts_to_mp4] total_frames = {total_frames}")
 
     # 选 CRF
     crf_map = {"extreme": 36, "high": 32, "medium": 28, "low": 24}
@@ -253,42 +263,25 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
     ]
     print(f"[ts_to_mp4] running command: {' '.join(cmd)}")
 
-    # 取得影片最早的 PTS
-    pts_base = get_first_pts(ts_file)
-    print(f"[ts_to_mp4] pts_base={pts_base}")
 
     def read_output(proc):
-        print(f"[ts_to_mp4] read_output() thread started")
-        prev_out_sec = 0
-        total_progress_sec = 0
+        print("[ts_to_mp4] read_output() thread started")
         while True:
             line = proc.stdout.readline()
             if not line:
-                print("[ts_to_mp4] ffmpeg stdout closed, break.")
+                print("[ts_to_mp4] ffmpeg stdout closed, breaking.")
                 break
             print(f"[ffmpeg] {line.strip()}")
 
-            # (2) 算進度時要有 start_time
-            if line.startswith("out_time_ms="):
+            # 每当读取到 frame=XXX 时，就计算进度
+            if line.startswith("frame=") and total_frames:
                 try:
-                    out_ms = int(line.split("=", 1)[1].strip())
-                    out_sec = out_ms / 1000
-
-                    # 只累加正向前進的部分
-                    if out_sec > prev_out_sec:
-                        incr = out_sec - prev_out_sec
-                        total_progress_sec += incr
-                        prev_out_sec = out_sec
-                    # 若回退或亂跳（重複循環），不累計
-                    # 若亂跳超過太多，也不要再累計那段
-
-                    # 最多只能到 total_duration
-                    progress_sec = min(total_progress_sec, total_duration)
-                    pct = min(100, (progress_sec / total_duration) * 100)
+                    current_frame = int(line.split("=", 1)[1].strip())
+                    pct = min(100.0, current_frame / total_frames * 100.0)
                     conversion_tasks[task_key]["progress"] = pct
-                    print(f"[ts_to_mp4] 轉碼進度: {pct:.2f}% (累積進度={progress_sec}, out_time_ms={out_ms}, out_sec={out_sec}, total_duration={total_duration})")
+                    print(f"[ts_to_mp4] progress {pct:.2f}% ({current_frame}/{total_frames} frames)")
                 except Exception as e:
-                    print(f"[ts_to_mp4] 解析進度出錯: {str(e)} line={line}")
+                    print(f"[ts_to_mp4] failed to parse frame: {e}")
 
 
     proc = subprocess.Popen(
