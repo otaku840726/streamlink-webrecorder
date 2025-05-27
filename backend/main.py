@@ -280,13 +280,16 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
                 try:
                     out_ms = int(line.split("=", 1)[1].strip())
                     out_sec = out_ms / 1000
-                    # 判斷是否要取餘數
-                    if out_sec > total_duration * 3:
+
+                    # 只要超過 total_duration 就進行校正
+                    if out_sec > total_duration:
                         current_sec = out_sec % total_duration
+                        if current_sec < 1:  # 最後一圈不要變成 0%
+                            current_sec = total_duration
                     else:
                         current_sec = out_sec
 
-                    # 最大進度追蹤
+                    # 最大進度追蹤，讓進度只遞增不回退
                     prev_max = conversion_tasks[task_key].get("max_current_sec", 0)
                     if current_sec > prev_max:
                         conversion_tasks[task_key]["max_current_sec"] = current_sec
