@@ -167,51 +167,83 @@ def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
     size_mb = os.path.getsize(ts_file) / (1024*1024)
     print(f"开始处理 {ts_file}，大小: {size_mb:.2f} MB")
 
+    # 生成唯一标识符用于跟踪转码任务
     if task_id is None:
         task_id = os.path.basename(os.path.dirname(ts_file)) or "unknown"
-    
-    # 生成唯一标识符用于跟踪转码任务
     filename = os.path.basename(ts_file)
     task_key = f"{task_id}_{filename}"
-    
+
+    # 定义输出文件名：同目录下 .mp4
+    base, _ = os.path.splitext(ts_file)
+    mp4_file = base + ".mp4"
+
+    # 记录开始时间
+    start = time.time()
+
     # 初始化转码任务状态
     conversion_tasks[task_key] = {
         "status": "processing",
         "progress": 0,
-        "start_time": time.time(),
+        "start_time": start,
         "quality": quality,
-        "size": size_mb
+        "original_size": size_mb
     }
 
-    # 其余代码保持不变
-    # ... 现有代码 ...
-    
-    # 在转码完成时更新状态
+    # 根据 quality 选 CRF
+    crf_map = {"extreme": 36, "high": 32, "medium": 28, "low": 24}
+    crf = crf_map.get(quality, 32)
+
+    # 构建 ffmpeg 命令
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", ts_file,
+        "-c:v", "libx265",
+        "-crf", str(crf),
+        "-preset", "medium",
+        "-c:a", "copy",
+        mp4_file
+    ]
+
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError:
+        # 转码失败
+        print(f"转码异常：{cmd}")
+        conversion_tasks[task_key].update({
+            "status": "failed",
+            "end_time": time.time(),
+            "progress": 0
+        })
+        return None
+
+    # 转码完成，检查输出
     if os.path.exists(mp4_file):
-        new_size = os.path.getsize(mp4_file)
-        log(f"完成：{size_mb:.2f}MB → {new_size/1024/1024:.2f}MB，耗时 {time.time()-start:.1f}s")
-        conversion_tasks[task_key] = {
+        new_size_mb = os.path.getsize(mp4_file) / (1024*1024)
+        elapsed = time.time() - start
+        print(f"完成：{size_mb:.2f}MB → {new_size_mb:.2f}MB，耗时 {elapsed:.1f}s")
+
+        conversion_tasks[task_key].update({
             "status": "completed",
             "progress": 100,
-            "start_time": conversion_tasks[task_key]["start_time"],
             "end_time": time.time(),
-            "quality": quality,
-            "original_size": size_mb,
-            "new_size": new_size/1024/1024
-        }
-        try: os.remove(ts_file)
-        except: pass
+            "new_size": new_size_mb
+        })
+        # 可选：删除原 ts
+        try:
+            os.remove(ts_file)
+        except OSError:
+            pass
+
         return mp4_file
     else:
-        log("转码失败：未生成输出文件")
-        conversion_tasks[task_key] = {
+        print("转码失败：未生成输出文件")
+        conversion_tasks[task_key].update({
             "status": "failed",
-            "progress": 0,
-            "start_time": conversion_tasks[task_key]["start_time"],
             "end_time": time.time(),
-            "quality": quality
-        }
+            "progress": 0
+        })
         return None
+
 
 # 添加新的 API 端点，用于手动触发转码（约在第 600 行后）
 @app.post("/tasks/{task_id}/recordings/{filename}/convert")
