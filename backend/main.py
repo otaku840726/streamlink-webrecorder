@@ -280,14 +280,25 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
                 try:
                     out_ms = int(line.split("=", 1)[1].strip())
                     out_sec = out_ms / 1000
-                    # 注意這裡！start_time 需要是 float
-                    current_sec = out_sec - start_time
-                    if current_sec < 0:
+                    print(f"[debug] out_time_ms={out_ms}, out_sec={out_sec}")
+
+                    # 不再減 start_time
+                    current_sec = out_sec
+                    print(f"[debug] current_sec={current_sec}, total_duration={total_duration}")
+
+                    # 防呆: 超過總時長就 cap 到 100
+                    if total_duration <= 0:
                         pct = 0
+                        print("[debug] total_duration<=0，進度設為0")
+                    elif current_sec < 0:
+                        pct = 0
+                        print(f"[debug] current_sec < 0，進度設為0")
                     else:
                         pct = min(100, (current_sec / total_duration) * 100)
+                        print(f"[debug] 計算進度: (current_sec / total_duration) * 100 = ({current_sec} / {total_duration}) * 100 = {pct}%")
+        
                     conversion_tasks[task_key]["progress"] = pct
-                    print(f"[ts_to_mp4] 轉碼進度: {pct:.2f}% (out_time_ms={out_ms}, out_sec={out_sec}, current_sec={current_sec}, start_time={start_time}, total_duration={total_duration})")
+                    print(f"[ts_to_mp4] 轉碼進度: {pct:.2f}% (out_time_ms={out_ms}, out_sec={out_sec}, current_sec={current_sec}, total_duration={total_duration})")
                 except Exception as e:
                     print(f"[ts_to_mp4] 解析進度出錯: {str(e)} line={line}")
 
