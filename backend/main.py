@@ -262,7 +262,7 @@ def convert_recording(task_id: str, filename: str, quality: str = "high"):
     # 检查是否已经在转码
     task_key = f"{task_id}_{filename}"
     if task_key in conversion_tasks and conversion_tasks[task_key]["status"] == "processing":
-        return {"status": "already_processing"}
+        return {"status": "already_processing", "task_key": task_key}
     
     # 启动转码线程
     def convert_thread():

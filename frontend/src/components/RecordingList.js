@@ -92,12 +92,12 @@ export default function RecordingList({ task, onPlay }) {
     
     try {
       const result = await api.convertRecording(task.id, selectedFile.file, quality);
-      if (result.task_key) {
-        setConversionStatus(prev => ({
-          ...prev,
-          [result.task_key]: { status: 'processing', progress: 0 }
-        }));
-      }
+      // 优先用后端给的 key，没有就自己组装
+      const key = result.task_key ?? `${task.id}_${selectedFile.file}`;
+      setConversionStatus(prev => ({
+        ...prev,
+        [key]: { status: 'processing', progress: 0 }
+      }));
       setConvertDialog(false);
     } catch (error) {
       console.error('转码请求失败', error);
@@ -164,8 +164,8 @@ export default function RecordingList({ task, onPlay }) {
                       <Box sx={{ mt: 1 }}>
                         {converting.status === 'processing' && (
                           <>
-                            <Typography variant="body2" color="primary">轉碼中... {converting.progress ? `${Math.round(converting.progress)}%` : ''}</Typography>
-                            <LinearProgress variant="indeterminate" sx={{ mt: 0.5 }} />
+                            <Typography variant="body2" color="primary">轉碼中... {`${Math.round(converting.progress || 0)}%`}</Typography>
+                            <LinearProgress  variant="determinate" value={converting.progress || 0}  sx={{ mt: 0.5 }} />
                           </>
                         )}
                         {converting.status === 'completed' && (
