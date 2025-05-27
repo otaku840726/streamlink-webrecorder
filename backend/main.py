@@ -151,127 +151,93 @@ def write_compression_log(message):
 
 # 添加在全局变量部分（约在第 40 行附近）
 # 用于跟踪转码任务的状态
-
-
-# 添加在 ts_to_mp4 函数中，修改函数签名和内容
-def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
-    """将 TS 转为 MP4，使用 libx265 + CRF 软件编码压缩并保留分辨率/帧率。
-    quality: "extreme"(crf 36) | "high"(32) | "medium"(28) | "low"(24)
-    """
-    import os, subprocess, tempfile, time, shutil
-
-    if not os.path.exists(ts_file):
-        print(f"错误: 找不到 TS 文件 {ts_file}")
+def get_duration(ts_file):
+    """用 ffprobe 获取总时长（秒）"""
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        ts_file
+    ]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        return float(result.stdout.strip())
+    except:
         return None
 
-    size_mb = os.path.getsize(ts_file) / (1024*1024)
-    print(f"开始处理 {ts_file}，大小: {size_mb:.2f} MB")
-
-    # 生成唯一标识符用于跟踪转码任务
-    if task_id is None:
-        task_id = os.path.basename(os.path.dirname(ts_file)) or "unknown"
+# 添加在 ts_to_mp4 函数中，修改函数签名和内容
+def ts_to_mp4(ts_file, quality="high", task_id=None):
     filename = os.path.basename(ts_file)
     task_key = f"{task_id}_{filename}"
-
-    # 定义输出文件名：同目录下 .mp4
     base, _ = os.path.splitext(ts_file)
     mp4_file = base + ".mp4"
 
-    # 记录开始时间
+    # 初始化状态
     start = time.time()
-
-    # 初始化转码任务状态
     conversion_tasks[task_key] = {
         "status": "processing",
         "progress": 0,
         "start_time": start,
-        "quality": quality,
-        "original_size": size_mb
+        "quality": quality
     }
 
-    # 根据 quality 选 CRF
+    # 先拿总时长
+    total_duration = get_duration(ts_file) or 1.0
+
+    # 选 CRF
     crf_map = {"extreme": 36, "high": 32, "medium": 28, "low": 24}
     crf = crf_map.get(quality, 32)
 
-    # 构建 ffmpeg 命令
+    # 用 -progress pipe:1 让 ffmpeg 输出进度到 stdout
     cmd = [
         "ffmpeg", "-y",
         "-i", ts_file,
-        "-c:v", "libx265",
-        "-crf", str(crf),
-        "-preset", "medium",
+        "-c:v", "libx265", "-crf", str(crf), "-preset", "medium",
         "-c:a", "copy",
+        "-progress", "pipe:1",  # 关键：把进度输出到 stdout
         mp4_file
     ]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
 
-    try:
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except subprocess.CalledProcessError:
-        # 转码失败
-        print(f"转码异常：{cmd}")
-        conversion_tasks[task_key].update({
-            "status": "failed",
-            "end_time": time.time(),
-            "progress": 0
-        })
-        return None
+    # 逐行读取进度信息
+    for line in proc.stdout:
+        # ffmpeg 会输出类似 "out_time_ms=1234567"
+        if line.startswith("out_time_ms="):
+            out_ms = int(line.split("=", 1)[1].strip())
+            pct = out_ms / (total_duration * 1000) * 100
+            # 限制在 0–100
+            conversion_tasks[task_key]["progress"] = min(100, max(0, pct))
 
-    # 转码完成，检查输出
-    if os.path.exists(mp4_file):
-        new_size_mb = os.path.getsize(mp4_file) / (1024*1024)
-        elapsed = time.time() - start
-        print(f"完成：{size_mb:.2f}MB → {new_size_mb:.2f}MB，耗时 {elapsed:.1f}s")
+    proc.wait()
 
+    # 转码完成／失败后收尾
+    if proc.returncode == 0 and os.path.exists(mp4_file):
         conversion_tasks[task_key].update({
             "status": "completed",
             "progress": 100,
-            "end_time": time.time(),
-            "new_size": new_size_mb
+            "end_time": time.time()
         })
-        # 可选：删除原 ts
-        try:
-            os.remove(ts_file)
-        except OSError:
-            pass
-
+        try: os.remove(ts_file)
+        except: pass
         return mp4_file
     else:
-        print("转码失败：未生成输出文件")
         conversion_tasks[task_key].update({
             "status": "failed",
-            "end_time": time.time(),
-            "progress": 0
+            "end_time": time.time()
         })
         return None
+
 
 
 # 添加新的 API 端点，用于手动触发转码（约在第 600 行后）
 @app.post("/tasks/{task_id}/recordings/{filename}/convert")
 def convert_recording(task_id: str, filename: str, quality: str = "high"):
-    tasks = get_tasks()
-    t = next((x for x in tasks if x["id"] == task_id), None)
-    if not t:
-        raise HTTPException(404)
-    save_dir = os.path.join(RECORDINGS_DIR, t["save_dir"].strip("/"))
-    file_path = os.path.join(save_dir, filename)
-    if not os.path.exists(file_path):
-        raise HTTPException(404)
-    if not filename.lower().endswith(".ts"):
-        raise HTTPException(400, "Only .ts files can be converted")
-    
-    # 检查是否已经在转码
+    # …（检查文件、构造 file_path 同前）
     task_key = f"{task_id}_{filename}"
     if task_key in conversion_tasks and conversion_tasks[task_key]["status"] == "processing":
         return {"status": "already_processing", "task_key": task_key}
-    
-    # 启动转码线程
-    def convert_thread():
-        ts_to_mp4(file_path, quality=quality, task_id=task_id)
-    
-    thread = threading.Thread(target=convert_thread)
-    thread.daemon = True
+    thread = threading.Thread(target=ts_to_mp4, args=(file_path, quality, task_id), daemon=True)
     thread.start()
-    
     return {"status": "started", "task_key": task_key}
 
 # 添加 API 端点，用于获取转码进度
