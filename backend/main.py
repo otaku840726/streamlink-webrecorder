@@ -181,14 +181,22 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
         "quality": quality
     }
 
-    # 先拿总时长
-    total_duration = get_duration(ts_file) or 1.0
+    # 先拿总时长，必须成功，否则无法计算中间进度
+    total_duration = get_duration(ts_file)
+    if not total_duration:
+        # 取不到时，直接跳到完成／失败处理，让前端看到 completed 或 failed
+        conversion_tasks[task_key].update({
+            "status": "failed",
+            "end_time": time.time(),
+            "progress": 0
+        })
+        return None
 
     # 选 CRF
     crf_map = {"extreme": 36, "high": 32, "medium": 28, "low": 24}
     crf = crf_map.get(quality, 32)
 
-    # 关键：持续输出进度信息，关闭默认 stats
+    # 关键：持续输出进度信息，并关闭默认 stats 输出
     cmd = [
         "ffmpeg",
         "-hide_banner",
@@ -207,7 +215,7 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
         # ffmpeg 会输出类似 "out_time_ms=1234567"
         if line.startswith("out_time_ms="):
             out_ms = int(line.split("=", 1)[1].strip())
-            pct = out_ms / (total_duration * 1000) * 100
+            pct = (out_ms / (total_duration * 1000)) * 100
             # 限制在 0–100
             conversion_tasks[task_key]["progress"] = min(100, max(0, pct))
 
