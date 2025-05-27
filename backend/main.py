@@ -283,7 +283,13 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
                     print(f"[debug] out_time_ms={out_ms}, out_sec={out_sec}")
 
                     # 不再減 start_time
-                    current_sec = out_sec - pts_base
+                    # 若 out_sec 太大，直接信任 out_sec 是播放秒數
+                    if out_sec > total_duration * 3:  # 通常不會大於3倍
+                        current_sec = out_sec % total_duration
+                        print(f"[debug] out_sec 太大，進行取餘數矯正: {out_sec} % {total_duration} = {current_sec}")
+                    else:
+                        current_sec = out_sec
+                        print(f"[debug] 使用 out_sec 直接當 current_sec: {current_sec}")
                     print(f"[debug] current_sec={current_sec}, total_duration={total_duration}, pts_base={pts_base}")
 
                     # 防呆: 超過總時長就 cap 到 100
