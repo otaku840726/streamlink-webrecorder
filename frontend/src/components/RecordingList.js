@@ -191,7 +191,7 @@ export default function RecordingList({ task, onPlay }) {
                     >播放</Button>
                     
                     {/* 添加转码按钮 */}
-                    {isTs && !converting?.status === 'processing' && (
+                    {isTs && converting?.status !== 'processing' && (
                       <Button
                         size="small"
                         variant="outlined"
