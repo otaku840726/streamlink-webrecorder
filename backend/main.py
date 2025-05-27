@@ -283,9 +283,7 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
 
                     # 只要超過 total_duration 就進行校正
                     if out_sec > total_duration:
-                        current_sec = out_sec % total_duration
-                        if current_sec < 1:  # 最後一圈不要變成 0%
-                            current_sec = total_duration
+                        current_sec = total_duration
                     else:
                         current_sec = out_sec
 
