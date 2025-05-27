@@ -185,11 +185,15 @@ def get_duration(ts_file):
 
 # 添加在 ts_to_mp4 函数中，修改函数签名和内容
 def ts_to_mp4(ts_file, quality="high", task_id=None):
-    import re  # 確保 re 模塊已導入
+    import re
+    import subprocess
     filename = os.path.basename(ts_file)
     task_key = f"{task_id}_{filename}"
     base, _ = os.path.splitext(ts_file)
     mp4_file = base + ".mp4"
+
+    print(f"[ts_to_mp4] called with ts_file={ts_file} quality={quality} task_id={task_id}")
+    print(f"[ts_to_mp4] task_key={task_key}, mp4_file={mp4_file}")
 
     # 初始化状态
     start = time.time()
@@ -202,8 +206,9 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
 
     # 先拿总时长，必须成功，否则无法计算中间进度
     total_duration = get_duration(ts_file)
+    print(f"[ts_to_mp4] get_duration({ts_file}) = {total_duration}")
     if not total_duration or total_duration < 1.0:
-        print(f"無法獲取 {ts_file} 的時長，放棄轉碼")
+        print(f"[ts_to_mp4] 無法獲取 {ts_file} 的時長，放棄轉碼")
         conversion_tasks[task_key].update({
             "status": "failed",
             "end_time": time.time(),
@@ -214,6 +219,7 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
     # 选 CRF
     crf_map = {"extreme": 36, "high": 32, "medium": 28, "low": 24}
     crf = crf_map.get(quality, 32)
+    print(f"[ts_to_mp4] crf={crf}")
 
     # 关键：持续输出进度信息，并关闭默认 stats 输出
     cmd = [
@@ -227,37 +233,45 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
         "-c:a", "copy",
         mp4_file
     ]
-    
-    # 使用線程來讀取進程輸出，確保實時更新進度
+    print(f"[ts_to_mp4] running command: {' '.join(cmd)}")
+
     def read_output(proc):
-        for line in iter(proc.stdout.readline, ''):
-            if not line:  # 如果讀取到空行，說明流結束了
+        print(f"[ts_to_mp4] read_output() thread started")
+        while True:
+            line = proc.stdout.readline()
+            if not line:
+                print("[ts_to_mp4] ffmpeg stdout closed, break.")
                 break
-            # ffmpeg 会输出类似 "out_time_ms=1234567"
+            print(f"[ffmpeg] {line.strip()}")
             if line.startswith("out_time_ms="):
                 try:
                     out_ms = int(line.split("=", 1)[1].strip())
                     pct = (out_ms / (total_duration * 1000)) * 100
-                    # 限制在 0–100
                     conversion_tasks[task_key]["progress"] = min(100, max(0, pct))
-                    print(f"轉碼進度: {pct:.2f}%")
+                    print(f"[ts_to_mp4] 轉碼進度: {pct:.2f}% (out_time_ms={out_ms}, total_duration={total_duration})")
                 except Exception as e:
-                    print(f"處理進度時出錯: {str(e)}")
-    
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True)
-    
-    # 啟動讀取線程
+                    print(f"[ts_to_mp4] 解析進度出錯: {str(e)} line={line}")
+
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        universal_newlines=True
+    )
     output_thread = threading.Thread(target=read_output, args=(proc,), daemon=True)
     output_thread.start()
-    
-    # 等待進程完成
+
     proc.wait()
-    output_thread.join(timeout=1)  # 給讀取線程最多1秒鐘完成
+    output_thread.join(timeout=1)
+    print(f"[ts_to_mp4] ffmpeg proc.returncode={proc.returncode}")
 
     # 转码完成／失败后收尾
     if proc.returncode == 0 and os.path.exists(mp4_file):
         original_size = os.path.getsize(ts_file) / (1024*1024)
         new_size = os.path.getsize(mp4_file) / (1024*1024)
+        print(f"[ts_to_mp4] completed: {original_size:.2f}MB → {new_size:.2f}MB")
         conversion_tasks[task_key].update({
             "status": "completed",
             "progress": 100,
@@ -265,10 +279,13 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
             "original_size": original_size,
             "new_size": new_size
         })
-        try: os.remove(ts_file)
-        except: pass
+        try:
+            os.remove(ts_file)
+        except Exception as e:
+            print(f"[ts_to_mp4] 刪除 TS 檔時發生錯誤: {e}")
         return mp4_file
     else:
+        print(f"[ts_to_mp4] failed. mp4_file exists: {os.path.exists(mp4_file)}")
         conversion_tasks[task_key].update({
             "status": "failed",
             "end_time": time.time()
