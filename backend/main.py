@@ -276,14 +276,18 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
                     print(f"[ts_to_mp4] failed to parse start_time: {e}")
 
             # (2) 算進度時要有 start_time
-            if line.startswith("out_time_ms=") and start_time is not None:
+            if line.startswith("out_time_ms="):
                 try:
                     out_ms = int(line.split("=", 1)[1].strip())
-                    current_sec = out_ms / 1000
-                    print(f"[debug] out_time_ms/1000={current_sec}, start_time={start_time}")
-                    pct = (current_sec / total_duration) * 100
-                    conversion_tasks[task_key]["progress"] = min(100, max(0, pct))
-                    print(f"[ts_to_mp4] 轉碼進度: {pct:.2f}% (out_time_ms={out_ms}, current_sec={current_sec}, total_duration={total_duration})")
+                    out_sec = out_ms / 1000
+                    # 注意這裡！start_time 需要是 float
+                    current_sec = out_sec - start_time
+                    if current_sec < 0:
+                        pct = 0
+                    else:
+                        pct = min(100, (current_sec / total_duration) * 100)
+                    conversion_tasks[task_key]["progress"] = pct
+                    print(f"[ts_to_mp4] 轉碼進度: {pct:.2f}% (out_time_ms={out_ms}, out_sec={out_sec}, current_sec={current_sec}, start_time={start_time}, total_duration={total_duration})")
                 except Exception as e:
                     print(f"[ts_to_mp4] 解析進度出錯: {str(e)} line={line}")
 
