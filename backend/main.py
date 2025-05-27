@@ -257,7 +257,7 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
             if line.startswith("out_time_ms=") and start_time is not None:
                 try:
                     out_ms = int(line.split("=", 1)[1].strip())
-                    current_sec = (out_ms / 1000.0) - start_time
+                    current_sec = out_ms / 1000
                     pct = (current_sec / total_duration) * 100
                     conversion_tasks[task_key]["progress"] = min(100, max(0, pct))
                     print(f"[ts_to_mp4] 轉碼進度: {pct:.2f}% (out_time_ms={out_ms}, current_sec={current_sec}, total_duration={total_duration})")
