@@ -46,9 +46,13 @@ const api = {
         return r.data;
     },
     async getConversionStatus(taskKey) {
-        const r = await axios.get(`${API}/conversion_status?task_key=${taskKey}`);
+        // taskKey 存在就带 ?task_key=xxx，否则直接拉全量
+        const url = taskKey
+          ? `${API}/conversion_status?task_key=${encodeURIComponent(taskKey)}`
+          : `${API}/conversion_status`;
+        const r = await axios.get(url);
         return r.data;
-    },
+    },      
 };
 
 export default api;
