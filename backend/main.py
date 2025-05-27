@@ -280,29 +280,20 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
                 try:
                     out_ms = int(line.split("=", 1)[1].strip())
                     out_sec = out_ms / 1000
-                    print(f"[debug] out_time_ms={out_ms}, out_sec={out_sec}")
-
-                    # 不再減 start_time
-                    # 若 out_sec 太大，直接信任 out_sec 是播放秒數
-                    if out_sec > total_duration * 3:  # 通常不會大於3倍
+                    # 判斷是否要取餘數
+                    if out_sec > total_duration * 3:
                         current_sec = out_sec % total_duration
-                        print(f"[debug] out_sec 太大，進行取餘數矯正: {out_sec} % {total_duration} = {current_sec}")
                     else:
                         current_sec = out_sec
-                        print(f"[debug] 使用 out_sec 直接當 current_sec: {current_sec}")
-                    print(f"[debug] current_sec={current_sec}, total_duration={total_duration}, pts_base={pts_base}")
 
-                    # 防呆: 超過總時長就 cap 到 100
-                    if total_duration <= 0:
-                        pct = 0
-                        print("[debug] total_duration<=0，進度設為0")
-                    elif current_sec < 0:
-                        pct = 0
-                        print(f"[debug] current_sec < 0，進度設為0")
+                    # 最大進度追蹤
+                    prev_max = conversion_tasks[task_key].get("max_current_sec", 0)
+                    if current_sec > prev_max:
+                        conversion_tasks[task_key]["max_current_sec"] = current_sec
                     else:
-                        pct = min(100, (current_sec / total_duration) * 100)
-                        print(f"[debug] 計算進度: (current_sec / total_duration) * 100 = ({current_sec} / {total_duration}) * 100 = {pct}%")
-        
+                        current_sec = prev_max
+
+                    pct = min(100, (current_sec / total_duration) * 100)
                     conversion_tasks[task_key]["progress"] = pct
                     print(f"[ts_to_mp4] 轉碼進度: {pct:.2f}% (out_time_ms={out_ms}, out_sec={out_sec}, current_sec={current_sec}, total_duration={total_duration})")
                 except Exception as e:
