@@ -232,13 +232,31 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
 # 添加新的 API 端点，用于手动触发转码（约在第 600 行后）
 @app.post("/tasks/{task_id}/recordings/{filename}/convert")
 def convert_recording(task_id: str, filename: str, quality: str = "high"):
-    # …（检查文件、构造 file_path 同前）
+    tasks = get_tasks()
+    t = next((x for x in tasks if x["id"] == task_id), None)
+    if not t:
+        raise HTTPException(404)
+    save_dir = os.path.join(RECORDINGS_DIR, t["save_dir"].strip("/"))
+    file_path = os.path.join(save_dir, filename)       # ← 确保定义在这儿
+    if not os.path.exists(file_path):
+        raise HTTPException(404)
+    if not filename.lower().endswith(".ts"):
+        raise HTTPException(400, "Only .ts files can be converted")
+
     task_key = f"{task_id}_{filename}"
     if task_key in conversion_tasks and conversion_tasks[task_key]["status"] == "processing":
         return {"status": "already_processing", "task_key": task_key}
-    thread = threading.Thread(target=ts_to_mp4, args=(file_path, quality, task_id), daemon=True)
+
+    # 直接把 ts_to_mp4 当作 target，file_path 就是上面定义的那个变量
+    thread = threading.Thread(
+        target=ts_to_mp4,
+        args=(file_path, quality, task_id),
+        daemon=True
+    )
     thread.start()
+
     return {"status": "started", "task_key": task_key}
+
 
 # 添加 API 端点，用于获取转码进度
 @app.get("/conversion_status")
