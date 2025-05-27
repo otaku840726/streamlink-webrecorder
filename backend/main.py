@@ -183,6 +183,24 @@ def get_duration(ts_file):
 
     return None  # 若完全失敗
 
+def get_first_pts(ts_file):
+    import subprocess, json
+    try:
+        cmd = [
+            "ffprobe", "-v", "error", "-print_format", "json",
+            "-show_entries", "frame=pts_time", "-select_streams", "v:0",
+            "-read_intervals", "%+#1", ts_file
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+        info = json.loads(result.stdout)
+        if "frames" in info and info["frames"]:
+            # 第一幀的 pts_time
+            return float(info["frames"][0]["pts_time"])
+    except Exception as e:
+        print(f"[get_first_pts] error: {e}")
+    return 0.0
+
+
 # 添加在 ts_to_mp4 函数中，修改函数签名和内容
 def ts_to_mp4(ts_file, quality="high", task_id=None):
     import re
@@ -235,6 +253,10 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
     ]
     print(f"[ts_to_mp4] running command: {' '.join(cmd)}")
 
+    # 取得影片最早的 PTS
+    pts_base = get_first_pts(ts_file)
+    print(f"[ts_to_mp4] pts_base={pts_base}")
+
     def read_output(proc):
         print(f"[ts_to_mp4] read_output() thread started")
         start_time = None  # 進度起點
@@ -257,7 +279,7 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
             if line.startswith("out_time_ms=") and start_time is not None:
                 try:
                     out_ms = int(line.split("=", 1)[1].strip())
-                    current_sec = out_ms / 1000
+                    current_sec = (out_ms / 1000) - pts_base
                     pct = (current_sec / total_duration) * 100
                     conversion_tasks[task_key]["progress"] = min(100, max(0, pct))
                     print(f"[ts_to_mp4] 轉碼進度: {pct:.2f}% (out_time_ms={out_ms}, current_sec={current_sec}, total_duration={total_duration})")
