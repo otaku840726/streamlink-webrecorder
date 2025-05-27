@@ -237,20 +237,33 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
 
     def read_output(proc):
         print(f"[ts_to_mp4] read_output() thread started")
+        start_time = None  # 進度起點
         while True:
             line = proc.stdout.readline()
             if not line:
                 print("[ts_to_mp4] ffmpeg stdout closed, break.")
                 break
             print(f"[ffmpeg] {line.strip()}")
-            if line.startswith("out_time_ms="):
+            # (1) 抓 start_time
+            if start_time is None and "start:" in line:
+                try:
+                    # 解析出 start: 153676.630000
+                    start_time = float(line.split("start:")[1].split(",")[0].strip())
+                    print(f"[ts_to_mp4] detected start_time: {start_time}")
+                except Exception as e:
+                    print(f"[ts_to_mp4] failed to parse start_time: {e}")
+
+            # (2) 算進度時要有 start_time
+            if line.startswith("out_time_ms=") and start_time is not None:
                 try:
                     out_ms = int(line.split("=", 1)[1].strip())
-                    pct = (out_ms / (total_duration * 1000)) * 100
+                    current_sec = (out_ms / 1000.0) - start_time
+                    pct = (current_sec / total_duration) * 100
                     conversion_tasks[task_key]["progress"] = min(100, max(0, pct))
-                    print(f"[ts_to_mp4] 轉碼進度: {pct:.2f}% (out_time_ms={out_ms}, total_duration={total_duration})")
+                    print(f"[ts_to_mp4] 轉碼進度: {pct:.2f}% (out_time_ms={out_ms}, current_sec={current_sec}, total_duration={total_duration})")
                 except Exception as e:
                     print(f"[ts_to_mp4] 解析進度出錯: {str(e)} line={line}")
+
 
     proc = subprocess.Popen(
         cmd,
