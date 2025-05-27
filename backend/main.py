@@ -152,18 +152,36 @@ def write_compression_log(message):
 # 添加在全局变量部分（约在第 40 行附近）
 # 用于跟踪转码任务的状态
 def get_duration(ts_file):
-    """用 ffprobe 获取总时长（秒）"""
-    cmd = [
+    # 方法 1：用 ffprobe 讀取 video stream duration
+    cmd1 = [
         "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=duration",
         "-of", "default=noprint_wrappers=1:nokey=1",
         ts_file
     ]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(cmd1, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
-        return float(result.stdout.strip())
+        duration = float(result.stdout.strip())
+        if duration > 0:
+            return duration
     except:
-        return None
+        pass
+
+    # 方法 2：ffmpeg 輸出資訊中擷取 "Duration: 00:00:12.34"
+    cmd2 = [
+        "ffmpeg", "-i", ts_file
+    ]
+    result2 = subprocess.run(cmd2, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    match = re.search(r'Duration: (\d+):(\d+):(\d+).(\d+)', result2.stdout)
+    if match:
+        hours = int(match.group(1))
+        minutes = int(match.group(2))
+        seconds = int(match.group(3))
+        millis = int(match.group(4))
+        return hours * 3600 + minutes * 60 + seconds + millis / 100.0
+
+    return None  # 若完全失敗
 
 # 添加在 ts_to_mp4 函数中，修改函数签名和内容
 def ts_to_mp4(ts_file, quality="high", task_id=None):
@@ -183,8 +201,8 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
 
     # 先拿总时长，必须成功，否则无法计算中间进度
     total_duration = get_duration(ts_file)
-    if not total_duration:
-        # 取不到时，直接跳到完成／失败处理，让前端看到 completed 或 failed
+    if not total_duration or total_duration < 1.0:
+        print(f"無法獲取 {ts_file} 的時長，放棄轉碼")
         conversion_tasks[task_key].update({
             "status": "failed",
             "end_time": time.time(),
