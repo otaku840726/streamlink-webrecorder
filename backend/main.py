@@ -23,6 +23,8 @@ import time
 HLS_DIR = "/hls"
 os.makedirs(HLS_DIR, exist_ok=True)
 hls_processes = {}  # task_id: subprocess.Popen
+conversion_tasks = {}  # {task_id_filename: {status, progress, start_time, quality}}  
+active_recordings = {}
 
 THUMBNAILS_DIR = "/thumbnails"
 os.makedirs(THUMBNAILS_DIR, exist_ok=True)
@@ -149,7 +151,7 @@ def write_compression_log(message):
 
 # 添加在全局变量部分（约在第 40 行附近）
 # 用于跟踪转码任务的状态
-conversion_tasks = {}  # {task_id_filename: {status, progress, start_time, quality}}  
+
 
 # 添加在 ts_to_mp4 函数中，修改函数签名和内容
 def ts_to_mp4(ts_file, quality="high", use_segmentation=True, task_id=None):
