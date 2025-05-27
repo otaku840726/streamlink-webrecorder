@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Typography, Card, CardContent, Button, CardMedia, Grid } from '@mui/material';
+import { Box, Typography, Card, CardContent, Button, CardMedia, Grid, Dialog, DialogTitle, DialogContent, DialogActions, FormControl, InputLabel, Select, MenuItem, LinearProgress } from '@mui/material';
 import api from '../api';
 
 // 缩略图轮播组件
@@ -37,6 +37,10 @@ function ThumbnailCarousel({ taskId, filename }) {
 export default function RecordingList({ task, onPlay }) {
   const [recordings, setRecordings] = useState([]);
   const [isActive, setIsActive] = useState(false);
+  const [convertDialog, setConvertDialog] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [quality, setQuality] = useState('high');
+  const [conversionStatus, setConversionStatus] = useState({});
 
   const reload = async () => {
     try {
@@ -55,6 +59,50 @@ export default function RecordingList({ task, onPlay }) {
     const t = setInterval(reload, 5000);
     return () => clearInterval(t);
   }, [task.id]);
+
+  // 添加转码状态检查
+  useEffect(() => {
+    const checkStatus = async () => {
+      // 获取所有正在转码的任务状态
+      const keys = Object.keys(conversionStatus).filter(key => 
+        conversionStatus[key]?.status === 'processing'
+      );
+      
+      if (keys.length > 0) {
+        try {
+          const statuses = await api.getConversionStatus();
+          setConversionStatus(prev => ({ ...prev, ...statuses }));
+        } catch (error) {
+          console.error('获取转码状态失败', error);
+        }
+      }
+    };
+    
+    const statusInterval = setInterval(checkStatus, 3000);
+    return () => clearInterval(statusInterval);
+  }, [conversionStatus]);
+
+  const handleConvertClick = (rec) => {
+    setSelectedFile(rec);
+    setConvertDialog(true);
+  };
+
+  const startConversion = async () => {
+    if (!selectedFile) return;
+    
+    try {
+      const result = await api.convertRecording(task.id, selectedFile.file, quality);
+      if (result.task_key) {
+        setConversionStatus(prev => ({
+          ...prev,
+          [result.task_key]: { status: 'processing', progress: 0 }
+        }));
+      }
+      setConvertDialog(false);
+    } catch (error) {
+      console.error('转码请求失败', error);
+    }
+  };
 
   return (
       <Box sx={{ my: 4, px: 2 }}>
@@ -97,7 +145,12 @@ export default function RecordingList({ task, onPlay }) {
         </Box>
 
         <Grid container spacing={3} justifyContent="center">
-          {recordings.map((rec) => (
+          {recordings.map((rec) => {
+            const isTs = rec.file.toLowerCase().endsWith('.ts');
+            const taskKey = `${task.id}_${rec.file}`;
+            const converting = conversionStatus[taskKey];
+            
+            return (
               <Grid item key={rec.file} xs={12} sm={6} md={4} lg={3}>
                 <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: 'grey.50', boxShadow: 3, borderRadius: 2 }}>
                   <ThumbnailCarousel taskId={task.id} filename={rec.file} />
@@ -105,6 +158,26 @@ export default function RecordingList({ task, onPlay }) {
                     <Typography variant="subtitle1" noWrap>{rec.file}</Typography>
                     <Typography variant="body2" color="text.secondary">大小: {(rec.size / 1024 / 1024).toFixed(1)} MB</Typography>
                     <Typography variant="body2" color="text.secondary">錄影時間: {new Date(rec.mtime).toLocaleString()}</Typography>
+                    
+                    {/* 显示转码状态 */}
+                    {converting && (
+                      <Box sx={{ mt: 1 }}>
+                        {converting.status === 'processing' && (
+                          <>
+                            <Typography variant="body2" color="primary">轉碼中... {converting.progress ? `${Math.round(converting.progress)}%` : ''}</Typography>
+                            <LinearProgress variant="indeterminate" sx={{ mt: 0.5 }} />
+                          </>
+                        )}
+                        {converting.status === 'completed' && (
+                          <Typography variant="body2" color="success.main">
+                            轉碼完成: {converting.original_size?.toFixed(1)} MB → {converting.new_size?.toFixed(1)} MB
+                          </Typography>
+                        )}
+                        {converting.status === 'failed' && (
+                          <Typography variant="body2" color="error">轉碼失敗</Typography>
+                        )}
+                      </Box>
+                    )}
                   </CardContent>
                   <Box sx={{ p: 1, pt: 0, display: 'flex', justifyContent: 'space-between', bgcolor: 'grey.100' }}>
                     <Button
@@ -116,6 +189,17 @@ export default function RecordingList({ task, onPlay }) {
                           onPlay(playUrl);
                         }}
                     >播放</Button>
+                    
+                    {/* 添加转码按钮 */}
+                    {isTs && !converting?.status === 'processing' && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        onClick={() => handleConvertClick(rec)}
+                      >轉碼</Button>
+                    )}
+                    
                     <Button
                         size="small"
                         variant="outlined"
@@ -130,8 +214,33 @@ export default function RecordingList({ task, onPlay }) {
                   </Box>
                 </Card>
               </Grid>
-          ))}
+            );
+          })}
         </Grid>
+        
+        {/* 转码选项对话框 */}
+        <Dialog open={convertDialog} onClose={() => setConvertDialog(false)}>
+          <DialogTitle>選擇轉碼品質</DialogTitle>
+          <DialogContent>
+            <FormControl fullWidth sx={{ mt: 2 }}>
+              <InputLabel>壓縮品質</InputLabel>
+              <Select
+                value={quality}
+                label="壓縮品質"
+                onChange={(e) => setQuality(e.target.value)}
+              >
+                <MenuItem value="extreme">極高壓縮 (最小檔案)</MenuItem>
+                <MenuItem value="high">高壓縮 (推薦)</MenuItem>
+                <MenuItem value="medium">中等壓縮</MenuItem>
+                <MenuItem value="low">低壓縮 (最高畫質)</MenuItem>
+              </Select>
+            </FormControl>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setConvertDialog(false)}>取消</Button>
+            <Button onClick={startConversion} variant="contained">開始轉碼</Button>
+          </DialogActions>
+        </Dialog>
       </Box>
   );
 }

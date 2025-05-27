@@ -40,6 +40,15 @@ const api = {
         const r = await axios.get(`${API}/tasks/${taskId}/recordings/${filename}/thumbnails`);
         return r.data;
     },
+    // 在 api 对象中添加以下方法
+    async convertRecording(taskId, filename, quality) {
+        const r = await axios.post(`${API}/tasks/${taskId}/recordings/${filename}/convert?quality=${quality}`);
+        return r.data;
+    },
+    async getConversionStatus(taskKey) {
+        const r = await axios.get(`${API}/conversion_status?task_key=${taskKey}`);
+        return r.data;
+    },
 };
 
 export default api;
