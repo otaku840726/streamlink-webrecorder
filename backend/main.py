@@ -259,21 +259,14 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
 
     def read_output(proc):
         print(f"[ts_to_mp4] read_output() thread started")
-        start_time = None  # 進度起點
+        prev_out_sec = 0
+        total_progress_sec = 0
         while True:
             line = proc.stdout.readline()
             if not line:
                 print("[ts_to_mp4] ffmpeg stdout closed, break.")
                 break
             print(f"[ffmpeg] {line.strip()}")
-            # (1) 抓 start_time
-            if start_time is None and "start:" in line:
-                try:
-                    # 解析出 start: 153676.630000
-                    start_time = float(line.split("start:")[1].split(",")[0].strip())
-                    print(f"[ts_to_mp4] detected start_time: {start_time}")
-                except Exception as e:
-                    print(f"[ts_to_mp4] failed to parse start_time: {e}")
 
             # (2) 算進度時要有 start_time
             if line.startswith("out_time_ms="):
@@ -281,22 +274,19 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
                     out_ms = int(line.split("=", 1)[1].strip())
                     out_sec = out_ms / 1000
 
-                    # 只要超過 total_duration 就進行校正
-                    if out_sec > total_duration:
-                        current_sec = total_duration
-                    else:
-                        current_sec = out_sec
+                    # 只累加正向前進的部分
+                    if out_sec > prev_out_sec:
+                        incr = out_sec - prev_out_sec
+                        total_progress_sec += incr
+                        prev_out_sec = out_sec
+                    # 若回退或亂跳（重複循環），不累計
+                    # 若亂跳超過太多，也不要再累計那段
 
-                    # 最大進度追蹤，讓進度只遞增不回退
-                    prev_max = conversion_tasks[task_key].get("max_current_sec", 0)
-                    if current_sec > prev_max:
-                        conversion_tasks[task_key]["max_current_sec"] = current_sec
-                    else:
-                        current_sec = prev_max
-
-                    pct = min(100, (current_sec / total_duration) * 100)
+                    # 最多只能到 total_duration
+                    progress_sec = min(total_progress_sec, total_duration)
+                    pct = min(100, (progress_sec / total_duration) * 100)
                     conversion_tasks[task_key]["progress"] = pct
-                    print(f"[ts_to_mp4] 轉碼進度: {pct:.2f}% (out_time_ms={out_ms}, out_sec={out_sec}, current_sec={current_sec}, total_duration={total_duration})")
+                    print(f"[ts_to_mp4] 轉碼進度: {pct:.2f}% (累積進度={progress_sec}, out_time_ms={out_ms}, out_sec={out_sec}, total_duration={total_duration})")
                 except Exception as e:
                     print(f"[ts_to_mp4] 解析進度出錯: {str(e)} line={line}")
 
