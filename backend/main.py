@@ -283,8 +283,8 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
                     print(f"[debug] out_time_ms={out_ms}, out_sec={out_sec}")
 
                     # 不再減 start_time
-                    current_sec = out_sec
-                    print(f"[debug] current_sec={current_sec}, total_duration={total_duration}")
+                    current_sec = out_sec - pts_base
+                    print(f"[debug] current_sec={current_sec}, total_duration={total_duration}, pts_base={pts_base}")
 
                     # 防呆: 超過總時長就 cap 到 100
                     if total_duration <= 0:
