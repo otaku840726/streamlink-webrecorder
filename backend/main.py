@@ -188,13 +188,16 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
     crf_map = {"extreme": 36, "high": 32, "medium": 28, "low": 24}
     crf = crf_map.get(quality, 32)
 
-    # 用 -progress pipe:1 让 ffmpeg 输出进度到 stdout
+    # 关键：持续输出进度信息，关闭默认 stats
     cmd = [
-        "ffmpeg", "-y",
+        "ffmpeg",
+        "-hide_banner",
+        "-y",
+        "-progress", "pipe:1",
+        "-nostats",
         "-i", ts_file,
         "-c:v", "libx265", "-crf", str(crf), "-preset", "medium",
         "-c:a", "copy",
-        "-progress", "pipe:1",  # 关键：把进度输出到 stdout
         mp4_file
     ]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
