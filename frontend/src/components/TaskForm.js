@@ -11,8 +11,10 @@ import {
   Select,
   MenuItem,
   InputLabel,
-  FormControl
+  FormControl,
+  useMediaQuery // Added for responsive fullScreen
 } from "@mui/material";
+import { useTheme } from '@mui/material/styles'; // Added for responsive fullScreen
 import api from "../api";
 
 const defaultForm = {
@@ -26,6 +28,8 @@ const defaultForm = {
 };
 
 export default function TaskForm({ open, task, onClose }) {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm')); // Dialog fullScreen on small screens
   const [form, setForm] = useState(defaultForm);
 
   useEffect(() => {
@@ -56,8 +60,24 @@ export default function TaskForm({ open, task, onClose }) {
     onClose();
   };
 
+  const handleClose = (event, reason) => {
+    // Prevent closing on backdrop click or escape key
+    if (reason && (reason === "backdropClick" || reason === "escapeKeyDown")) {
+      return;
+    }
+    onClose(); // Call original onClose for other cases (e.g., cancel button)
+  };
+
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" PaperProps={{ sx: { m: 1, width: 'calc(100% - 16px)' } }}>
+    <Dialog 
+      open={open} 
+      onClose={handleClose} // Use custom handleClose
+      fullScreen={fullScreen} // Set fullScreen based on screen size
+      fullWidth 
+      maxWidth="sm" 
+      PaperProps={!fullScreen ? { sx: { m: 1, width: 'calc(100% - 16px)' } } : {}}
+      disableEscapeKeyDown // Disable closing on Escape key
+    >
       <DialogTitle>{task ? "編輯任務" : "新增任務"}</DialogTitle>
       <DialogContent sx={{ overflowY: 'auto', p: 2 }}>
         <TextField
