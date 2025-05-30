@@ -411,19 +411,13 @@ def record_stream(task):
     if os.path.exists(meta_file):
         recorded = set(json.load(open(meta_file, 'r', encoding='utf-8')))
 
-    # 過濾新 URL
-    new_urls = [u for u in urls if u not in recorded]
-    if not new_urls:
-        write_log(task.id, "info", "沒有新的串流可錄製")
-        return
-
     # 產生統一 out_file
-    u = new_urls[0]
+    u = handler.get_new_url(urls, recorded)
     nowstr = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_file = os.path.join(save_path, f"{task.name}_{nowstr}.ts")
 
     # 透過 handler 生成具體指令
-    base_cmd = handler.build_cmd(u, task, out_file)
+    base_cmd = handler.build_cmd(handler.get_final_url(u), task, out_file)
 
     write_log(task.id, "start", f"CMD: {' '.join(base_cmd)}")
     proc = None

@@ -6,58 +6,79 @@ import urllib.parse
 from bs4 import BeautifulSoup
 from datetime import datetime
 from handlers.base_handler import StreamHandler
+from playwright.sync_api import sync_playwright, Page
 
 class GenericBingeHandler(StreamHandler):
+    def __init__(self):
+        super().__init__()
+        self.playwright = None
+        self.browser = None
+        self.page = None
+
+    def init_browser(self):
+        if not self.playwright:
+            self.playwright = sync_playwright().start()
+            self.browser = self.playwright.chromium.launch(headless=True)
+            self.page = self.browser.new_page()
+
+    def close_browser(self):
+        if self.browser:
+            self.browser.close()
+            self.playwright.stop()
+            self.browser = None
+            self.playwright = None
+            self.page = None
+
     def parse_urls(self, start_url: str) -> list[str]:
-        print(f"[DEBUG] parse_urls start with: {start_url}")
-        to_visit = [start_url]
-        visited = set()
-        urls = set()
+        """使用 Playwright 取得所有集數連結"""
+        episodes = {}
+        next_page = start_url
+        
+        self.init_browser()
+        while next_page:
+            self.page.goto(next_page, wait_until="load")
+            data = self.page.eval_on_selector_all(
+                ".entry-title a",
+                """els => els.map(e => ({
+                    href: e.href,
+                    title: e.textContent.trim()
+                }))"""
+            )
+            
+            for item in data:
+                m = re.search(r'\[(\d+)\]', item["title"])
+                if m:
+                    num = int(m[1])
+                    if num not in episodes:
+                        episodes[num] = item["href"]
 
-        while to_visit:
-            page = to_visit.pop(0)
-            print(f"[DEBUG] Visiting page: {page}")
-            if page in visited:
-                print(f"[DEBUG] Already visited: {page}")
-                continue
-            visited.add(page)
+            nxt = self.page.query_selector('a:has-text("上一頁")')
+            if nxt:
+                href = nxt.get_attribute("href")
+                if href:
+                    next_page = href
+                    continue
+            break
 
-            try:
-                resp = requests.get(page, timeout=10)
-                resp.raise_for_status()
-                html = resp.text
-                print(f"[DEBUG] Fetched {len(html)} bytes from {page}")
-            except Exception as e:
-                print(f"[DEBUG][ERROR] 無法抓取 {page}: {e}")
-                write_log(None, "error", f"無法抓取 {page}: {e}")
-                continue
+        sorted_nums = sorted(episodes.keys())
+        return [episodes[n] for n in sorted_nums]
 
-            soup = BeautifulSoup(html, 'html.parser')
-            # 找 <a> / <source>
-            for tag in soup.find_all(['a', 'source']):
-                src = tag.get('href') or tag.get('src') or ''
-                full = urllib.parse.urljoin(page, src)
-                if '.m3u8' in src:
-                    print(f"[DEBUG] Found m3u8 in tag: {full}")
-                    urls.add(full)
+    def get_new_url(self, urls: str, records: set[str]):
+        new_urls = [u for u in urls if u not in records]
+        return new_urls[0] if new_urls else None
 
-            # 找內嵌 JS 文字
-            for m in re.findall(r"['\"]([^'\"]*?\.m3u8(?:\?[^'\"]*)?)['\"]", html):
-                full = urllib.parse.urljoin(page, m)
-                print(f"[DEBUG] Found m3u8 in JS/text: {full}")
-                urls.add(full)
+    def get_final_url(self, episode_url: str):
+        """從影片頁面取得實際播放源"""
+        self.init_browser()
+        self.page.goto(episode_url, wait_until="load")
+        self.page.click(".vjs-big-play-centered")
+        self.page.wait_for_function(
+            "() => !!(document.querySelector('video') && document.querySelector('video').src)"
+        )
+        return self.page.evaluate("() => document.querySelector('video').src")
 
-            # 下一頁
-            nxt = soup.find('a', string=re.compile(r'下一[页頁]'))
-            if nxt and nxt.get('href'):
-                nxt_url = urllib.parse.urljoin(page, nxt['href'])
-                print(f"[DEBUG] Next page link: {nxt_url}")
-                if nxt_url not in visited:
-                    to_visit.append(nxt_url)
-
-        final = list(urls)
-        print(f"[DEBUG] parse_urls returning {len(final)} URLs: {final}")
-        return final
+    def __del__(self):
+        self.close_browser()
 
     def build_cmd(self, url: str, task, out_file: str) -> list[str]:
         print(f"[DEBUG] build_cmd called with url={url}, out_file={out_file}")

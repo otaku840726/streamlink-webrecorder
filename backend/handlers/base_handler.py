@@ -16,6 +16,18 @@ class StreamHandler(ABC):
         pass
 
     @abstractmethod
+    def get_new_url(self, urls: str, records: set[str]):
+        pass
+
+    @abstractmethod
+    def get_final_url(self, episode_url: str):
+        """
+        根據選中的 episode_url 做進一步處理，取得最終要給 build_cmd 的 url
+        預設直接回傳 episode_url，子類可覆寫此方法
+        """
+        pass     
+
+    @abstractmethod
     def build_cmd(self, url: str, task, out_file: str) -> list[str]:
         """根據單一 m3u8 URL、任務資訊與輸出檔案路徑，返回執行命令"""
         pass
