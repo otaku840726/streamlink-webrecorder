@@ -9,6 +9,11 @@ RUN apt-get update && apt-get install -y \
     python3 python3-pip python3-venv \
     wget curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+    
+ENV TZ=Asia/Taipei
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y tzdata \
+    && rm -rf /var/lib/apt/lists/*
 
 # python 相關依賴
 COPY requirements.txt .
