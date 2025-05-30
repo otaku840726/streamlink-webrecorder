@@ -61,7 +61,8 @@ class Task(BaseModel):
     interval: int
     save_dir: str
     params: Optional[str] = ""
-    hls_enable: Optional[bool] = False  # <--- 新增
+    hls_enable: Optional[bool] = False
+    default_conversion_quality: Optional[str] = "high" # 新增預設轉碼品質
 
 def get_tasks():
     if not os.path.exists(TASKS_FILE):
@@ -149,57 +150,6 @@ def read_logs(task_id, limit=20):
 def write_compression_log(message):
     print(message)
 
-# 添加在全局变量部分（约在第 40 行附近）
-# 用于跟踪转码任务的状态
-def get_duration(ts_file):
-    # 方法 1：用 ffprobe 讀取 video stream duration
-    cmd1 = [
-        "ffprobe", "-v", "error",
-        "-select_streams", "v:0",
-        "-show_entries", "stream=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        ts_file
-    ]
-    result = subprocess.run(cmd1, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    try:
-        duration = float(result.stdout.strip())
-        if duration > 0:
-            return duration
-    except:
-        pass
-
-    # 方法 2：ffmpeg 輸出資訊中擷取 "Duration: 00:00:12.34"
-    cmd2 = [
-        "ffmpeg", "-i", ts_file
-    ]
-    result2 = subprocess.run(cmd2, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    match = re.search(r'Duration: (\d+):(\d+):(\d+).(\d+)', result2.stdout)
-    if match:
-        hours = int(match.group(1))
-        minutes = int(match.group(2))
-        seconds = int(match.group(3))
-        millis = int(match.group(4))
-        return hours * 3600 + minutes * 60 + seconds + millis / 100.0
-
-    return None  # 若完全失敗
-
-def get_first_pts(ts_file):
-    import subprocess, json
-    try:
-        cmd = [
-            "ffprobe", "-v", "error", "-print_format", "json",
-            "-show_entries", "frame=pts_time", "-select_streams", "v:0",
-            "-read_intervals", "%+#1", ts_file
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
-        info = json.loads(result.stdout)
-        if "frames" in info and info["frames"]:
-            # 第一幀的 pts_time
-            return float(info["frames"][0]["pts_time"])
-    except Exception as e:
-        print(f"[get_first_pts] error: {e}")
-    return 0.0
-
 def get_total_frames(ts_file):
     """
     用 ffprobe 获取视频总帧数，用于进度计算
@@ -220,16 +170,13 @@ def get_total_frames(ts_file):
 
 
 # 添加在 ts_to_mp4 函数中，修改函数签名和内容
-def ts_to_mp4(ts_file, quality="high", task_id=None):
-    import re
-    import subprocess
+def ts_to_mp4(ts_file, quality="high", task_id=None, task_key_override=None):
+    import re  # 確保 re 模塊已導入
     filename = os.path.basename(ts_file)
-    task_key = f"{task_id}_{filename}"
+    # 如果提供了 task_key_override，則使用它，否則基於 task_id 和 filename 生成
+    task_key = task_key_override if task_key_override else f"{task_id}_{filename}"
     base, _ = os.path.splitext(ts_file)
     mp4_file = base + ".mp4"
-
-    print(f"[ts_to_mp4] called with ts_file={ts_file} quality={quality} task_id={task_id}")
-    print(f"[ts_to_mp4] task_key={task_key}, mp4_file={mp4_file}")
 
     # 初始化状态
     start = time.time()
@@ -240,70 +187,92 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
         "quality": quality
     }
 
-    # 只拿总帧数，用于进度计算
-    total_frames = get_total_frames(ts_file)
-    print(f"[ts_to_mp4] total_frames = {total_frames}")
-
     # 选 CRF
     crf_map = {"extreme": 36, "high": 32, "medium": 28, "low": 24}
     crf = crf_map.get(quality, 32)
-    print(f"[ts_to_mp4] crf={crf}")
 
-    # 关键：持续输出进度信息，并关闭默认 stats 输出
+    # 关键：使用 -stats 参数让 ffmpeg 输出详细的进度信息
     cmd = [
         "ffmpeg",
         "-hide_banner",
         "-y",
-        "-progress", "pipe:1",
-        "-nostats",
+        "-stats",  # 使用 -stats 而不是 -progress
         "-i", ts_file,
         "-c:v", "libx265", "-crf", str(crf), "-preset", "medium",
         "-c:a", "copy",
         mp4_file
     ]
-    print(f"[ts_to_mp4] running command: {' '.join(cmd)}")
-
-
+    
+    # 使用線程來讀取進程輸出，確保實時更新進度
     def read_output(proc):
-        print("[ts_to_mp4] read_output() thread started")
-        while True:
-            line = proc.stdout.readline()
-            if not line:
-                print("[ts_to_mp4] ffmpeg stdout closed, breaking.")
+        # 用於跟踪進度的變量
+        frame_count = 0
+        total_frames = None
+        fps = None
+        duration = None
+        
+        # 從 stderr 讀取，因為 ffmpeg 的進度信息輸出到 stderr
+        for line in iter(proc.stderr.readline, ''):
+            if not line:  # 如果讀取到空行，說明流結束了
                 break
-            print(f"[ffmpeg] {line.strip()}")
-
-            # 每当读取到 frame=XXX 时，就计算进度
-            if line.startswith("frame=") and total_frames:
-                try:
-                    current_frame = int(line.split("=", 1)[1].strip())
-                    pct = min(100.0, current_frame / total_frames * 100.0)
-                    conversion_tasks[task_key]["progress"] = pct
-                    print(f"[ts_to_mp4] progress {pct:.2f}% ({current_frame}/{total_frames} frames)")
-                except Exception as e:
-                    print(f"[ts_to_mp4] failed to parse frame: {e}")
-
-
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        universal_newlines=True
-    )
+                
+            # 打印每一行輸出，方便調試
+            print(f"FFMPEG: {line.strip()}")
+            
+            # 嘗試獲取總幀數
+            if total_frames is None and "frame=" in line and "fps=" in line:
+                # 嘗試從輸出中獲取總幀數和 fps
+                fps_match = re.search(r'fps=\s*(\d+\.?\d*)', line)
+                if fps_match:
+                    fps = float(fps_match.group(1))
+                    print(f"檢測到 FPS: {fps}")
+                
+                # 如果我們有 fps 和 duration，可以估算總幀數
+                if fps and duration is None:
+                    # 嘗試獲取時長
+                    duration_match = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.\d+)', line)
+                    if duration_match:
+                        hours = int(duration_match.group(1))
+                        minutes = int(duration_match.group(2))
+                        seconds = float(duration_match.group(3))
+                        duration = hours * 3600 + minutes * 60 + seconds
+                        total_frames = int(duration * fps)
+                        print(f"估算總幀數: {total_frames} (時長: {duration}s, FPS: {fps})")
+            
+            # 獲取當前處理的幀數
+            frame_match = re.search(r'frame=\s*(\d+)', line)
+            if frame_match:
+                current_frame = int(frame_match.group(1))
+                frame_count = current_frame  # 更新當前幀數
+                
+                # 如果我們知道總幀數，就可以計算進度
+                if total_frames:
+                    progress = (current_frame / total_frames) * 100
+                    # 限制在 0-100 範圍內
+                    progress = min(100, max(0, progress))
+                    conversion_tasks[task_key]["progress"] = progress
+                    print(f"轉碼進度: {progress:.2f}% (幀 {current_frame}/{total_frames})")
+                else:
+                    # 如果不知道總幀數，至少顯示當前幀數
+                    print(f"處理幀: {current_frame} (總幀數未知)")
+                    # 使用一個假的進度值，讓用戶知道轉碼正在進行
+                    conversion_tasks[task_key]["progress"] = min(95, frame_count / 1000)  # 假設大多數視頻至少有1000幀
+    
+    # 使用 stderr=subprocess.PIPE 來捕獲 ffmpeg 的進度輸出
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True)
+    
+    # 啟動讀取線程
     output_thread = threading.Thread(target=read_output, args=(proc,), daemon=True)
     output_thread.start()
-
+    
+    # 等待進程完成
     proc.wait()
-    output_thread.join(timeout=1)
-    print(f"[ts_to_mp4] ffmpeg proc.returncode={proc.returncode}")
+    output_thread.join(timeout=1)  # 給讀取線程最多1秒鐘完成
 
     # 转码完成／失败后收尾
     if proc.returncode == 0 and os.path.exists(mp4_file):
         original_size = os.path.getsize(ts_file) / (1024*1024)
         new_size = os.path.getsize(mp4_file) / (1024*1024)
-        print(f"[ts_to_mp4] completed: {original_size:.2f}MB → {new_size:.2f}MB")
         conversion_tasks[task_key].update({
             "status": "completed",
             "progress": 100,
@@ -311,17 +280,17 @@ def ts_to_mp4(ts_file, quality="high", task_id=None):
             "original_size": original_size,
             "new_size": new_size
         })
-        try:
-            os.remove(ts_file)
-        except Exception as e:
-            print(f"[ts_to_mp4] 刪除 TS 檔時發生錯誤: {e}")
+        print(f"轉碼完成: {ts_file} -> {mp4_file}")
+        print(f"文件大小: {original_size:.2f}MB -> {new_size:.2f}MB")
+        try: os.remove(ts_file)
+        except: pass
         return mp4_file
     else:
-        print(f"[ts_to_mp4] failed. mp4_file exists: {os.path.exists(mp4_file)}")
         conversion_tasks[task_key].update({
             "status": "failed",
             "end_time": time.time()
         })
+        print(f"轉碼失敗: {ts_file}")
         return None
 
 
@@ -377,21 +346,77 @@ def record_stream(task):
     ]
     write_log(task.id, "start", f"CMD: {' '.join(base_cmd)}")
     proc = None
+    conversion_triggered = False # 新增標誌，用於跟踪是否已觸發轉碼
+    thumbnail_thread = None # 用於在錄製過程中生成縮圖的線程
+
+    # 定期生成縮圖的函數
+    def generate_thumbnails_periodically(video_path, task_id_for_log):
+        last_size = 0
+        thumbnail_interval_seconds = 300 # 每30秒嘗試生成一次縮圖
+        min_size_change_for_thumbnail = 1024 * 1024 # 文件大小變化超過1MB才生成
+        thumbnail_count = 0
+        max_thumbnails_during_recording = 15 # 錄製過程中最多生成10張
+
+        while proc and proc.poll() is None: # 當錄製進程仍在運行時
+            time.sleep(thumbnail_interval_seconds)
+            if thumbnail_count >= max_thumbnails_during_recording:
+                write_log(task_id_for_log, "thumbnail_limit", "已達到錄製中縮圖生成上限")
+                break
+            try:
+                if os.path.exists(video_path):
+                    current_size = os.path.getsize(video_path)
+                    if current_size > 0 and (current_size - last_size > min_size_change_for_thumbnail):
+                        write_log(task_id_for_log, "thumbnail_attempt", f"嘗試為 {video_path} 生成縮圖 (大小: {current_size})")
+                        # 使用 ffmpeg 從當前 TS 文件生成一張縮圖
+                        # 這裡我們只取影片開頭附近的一幀作為臨時縮圖
+                        # 更複雜的邏輯可以選擇不同的時間點
+                        temp_thumbnail_dir = os.path.join(THUMBNAILS_DIR, os.path.splitext(os.path.basename(video_path))[0])
+                        os.makedirs(temp_thumbnail_dir, exist_ok=True)
+                        # 生成一個唯一的縮圖文件名，避免覆蓋
+                        thumbnail_filename = f"{os.path.splitext(os.path.basename(video_path))[0]}_live_{thumbnail_count + 1:03d}.jpg"
+                        thumbnail_path = os.path.join(temp_thumbnail_dir, thumbnail_filename)
+                        
+                        # 從影片的第 N 秒取一幀 (例如，每30秒取一次，就取第 30*thumbnail_count 秒)
+                        # 這裡簡化為取影片開頭的幾幀，避免讀取整個文件
+                        # 注意：對正在寫入的TS文件操作可能不穩定
+                        ffmpeg_cmd = [
+                            "ffmpeg", "-y", "-i", video_path,
+                            "-ss", "00:00:01", # 嘗試從影片的第1秒取幀
+                            "-frames:v", "1",
+                            "-vf", "scale=128:-1:flags=lanczos",
+                            "-qscale:v", "2",
+                            thumbnail_path
+                        ]
+                        subprocess.run(ffmpeg_cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        if os.path.exists(thumbnail_path):
+                            write_log(task_id_for_log, "thumbnail_live_generated", f"錄製中縮圖生成: {thumbnail_path}")
+                            thumbnail_count += 1
+                        last_size = current_size
+            except Exception as e:
+                write_log(task_id_for_log, "thumbnail_live_error", f"錄製中生成縮圖錯誤: {str(e)}")
+
     try:
         # ========== 註冊進程 ==========
         proc = subprocess.Popen(base_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         active_recordings[task.id] = proc
+
+        # 啟動定期生成縮圖的線程
+        thumbnail_thread = threading.Thread(target=generate_thumbnails_periodically, args=(out_file, task.id), daemon=True)
+        thumbnail_thread.start()
+
         stdout, stderr = proc.communicate()
         std_out_msg = stdout.decode("utf-8").strip() if stdout else ""
         std_err_msg = stderr.decode("utf-8").strip() if stderr else ""
         if proc.returncode == 0:
             write_log(task.id, "end", f"SUCCESS: {out_file}")
             # --- 自動轉成 MP4 --- (統一使用 ts_to_mp4 函數)
-            mp4_file = ts_to_mp4(out_file)
-            if mp4_file:
-                write_log(task.id, "mp4", f"MP4 converted: {mp4_file}")
-            else:
-                write_log(task.id, "error", f"MP4 conversion failed for {out_file}")
+            if os.path.exists(out_file):
+                # 錄製完成後，生成最終的完整縮圖集
+                generate_thumbnail(out_file) # 使用原始的 generate_thumbnail 生成完整縮圖
+                # 使用任務中定義的預設品質，如果沒有則使用 'high'
+                quality_to_use = task.default_conversion_quality if task.default_conversion_quality else "high"
+                convert_recording(task.id, out_file, quality=quality_to_use)
+                conversion_triggered = True # 標記已觸發轉碼
         else:
             # 無論錯誤訊息在哪裡，都抓進 log
             reason = std_err_msg or std_out_msg or "Unknown"
@@ -405,16 +430,18 @@ def record_stream(task):
     finally:
         # ========== 錄影結束自動移除進程 ==========
         active_recordings.pop(task.id, None)
+        if thumbnail_thread and thumbnail_thread.is_alive():
+            # 確保縮圖線程結束 (雖然是 daemon，但明確 join 更安全)
+            # proc.poll() is None 條件在上面循環中已處理，這裡可以簡化
+            pass 
+
         # 確保在 finally 區塊也呼叫 ts_to_mp4，以處理可能的例外情況
-        if os.path.exists(out_file):
-            mp4_file = ts_to_mp4(out_file)
-            if mp4_file:
-                # 這裡可以選擇是否要記錄，因為前面成功時已經記錄過了
-                # write_log(task.id, "mp4_finally", f"MP4 converted (finally): {mp4_file}")
-                pass # 或者不記錄
-            else:
-                # 如果轉換失敗，可以記錄一下
-                write_log(task.id, "error_finally", f"MP4 conversion failed (finally) for {out_file}")
+        # 只有在 try 區塊中沒有觸發轉碼，並且文件存在時才觸發
+        if not conversion_triggered and os.path.exists(out_file):
+            generate_thumbnail(out_file) # 確保即使錄製失敗也有縮圖
+            # 使用任務中定義的預設品質，如果沒有則使用 'high'
+            quality_to_use = task.default_conversion_quality if task.default_conversion_quality else "high"
+            convert_recording(task.id, out_file, quality=quality_to_use)
 
 def add_job(task: Task):
     stop_hls_stream(task.id)  # 保險先停
@@ -658,7 +685,8 @@ def stop_recording(task_id: str):
         if ts_files:
             latest_ts = max(ts_files, key=lambda f: os.path.getmtime(os.path.join(save_dir, f)))
             ts_file_path = os.path.join(save_dir, latest_ts)
-            ts_to_mp4(ts_file_path)
+            quality_to_use = t['default_conversion_quality'] if t['default_conversion_quality'] else "high"
+            convert_recording(task_id, ts_file_path, quality=quality_to_use)
         return {"ok": True, "msg": "Stopped"}
     return {"ok": False, "msg": "No active recording"}
 

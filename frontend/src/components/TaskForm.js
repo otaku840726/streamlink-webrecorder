@@ -7,7 +7,11 @@ import {
   DialogActions,
   Button,
   FormControlLabel,
-  Checkbox
+  Checkbox,
+  Select,
+  MenuItem,
+  InputLabel,
+  FormControl
 } from "@mui/material";
 import api from "../api";
 
@@ -17,7 +21,8 @@ const defaultForm = {
   interval: 5,
   save_dir: "",
   params: "",
-  hls_enable: false,      // <--- 新增
+  hls_enable: false,
+  default_conversion_quality: "high", // 新增預設轉碼品質
 };
 
 export default function TaskForm({ open, task, onClose }) {
@@ -97,6 +102,21 @@ export default function TaskForm({ open, task, onClose }) {
           onChange={handleChange}
           fullWidth
         />
+        <FormControl fullWidth margin="dense">
+          <InputLabel id="default-conversion-quality-label">預設轉碼品質</InputLabel>
+          <Select
+            labelId="default-conversion-quality-label"
+            name="default_conversion_quality"
+            value={form.default_conversion_quality || 'high'}
+            label="預設轉碼品質"
+            onChange={handleChange}
+          >
+            <MenuItem value="extreme">極高壓縮 (最小檔案)</MenuItem>
+            <MenuItem value="high">高壓縮 (推薦)</MenuItem>
+            <MenuItem value="medium">中等壓縮</MenuItem>
+            <MenuItem value="low">低壓縮 (最高畫質)</MenuItem>
+          </Select>
+        </FormControl>
         <FormControlLabel
           control={
             <Checkbox
