@@ -64,7 +64,7 @@ class Task(BaseModel):
     params: Optional[str] = ""
     hls_enable: Optional[bool] = False
     default_conversion_quality: Optional[str] = "high"
-    tool: Literal["Streamlink", "追劇"] = "Streamlink"
+    tool: Literal["streamlink", "custom"] = "streamlink"
 
 def get_tasks():
     if not os.path.exists(TASKS_FILE):

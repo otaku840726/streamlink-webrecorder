@@ -159,8 +159,8 @@ export default function TaskForm({ open, task, onClose }) {
             label="工具"
             onChange={handleChange}
           >
-            <MenuItem value="Streamlink">Streamlink</MenuItem>
-            <MenuItem value="追劇">追劇</MenuItem>
+            <MenuItem value="streamlink">Streamlink</MenuItem>
+            <MenuItem value="custom">Custom</MenuItem>
           </Select>
         </FormControl>
       </DialogContent>

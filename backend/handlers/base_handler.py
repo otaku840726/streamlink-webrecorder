@@ -27,8 +27,9 @@ def get_handler(task) -> StreamHandler:
         if pattern.search(task.url):
             return handler
     # 依 tool 選擇預設 handler
-    if task.tool == '追劇':
+    if task.tool == 'custom':
         from handlers.generic_binge_handler import GenericBingeHandler
         return GenericBingeHandler()
+        
     from handlers.streamlink_handler import StreamlinkHandler
     return StreamlinkHandler()
