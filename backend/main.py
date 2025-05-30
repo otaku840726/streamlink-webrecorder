@@ -249,27 +249,13 @@ def ts_to_mp4(ts_file, quality="high", task_id=None, task_key_override=None):
                 current_time_seconds = hours * 3600 + minutes * 60 + seconds
                 
                 # 進度是相對於 start 時間之後的當前時間
-                progress_time_seconds = current_time_seconds - start_time_seconds
+                # progress_time_seconds = current_time_seconds - start_time_seconds
+                progress_time_seconds = current_time_seconds
                 
-                if progress_time_seconds >= 0:
-                    progress = (progress_time_seconds / actual_total_duration_seconds) * 100
-                    progress = min(100, max(0, progress)) # 限制在 0-100
-                    conversion_tasks[task_key]["progress"] = progress
-                    print(f"轉碼進度 (基於時間): {progress:.2f}% (當前時間: {current_time_seconds}s / 實際總長: {actual_total_duration_seconds}s)")
-                else:
-                    # 如果 current_time_seconds < start_time_seconds，進度視為0
-                    conversion_tasks[task_key]["progress"] = 0
-                    print(f"轉碼進度 (基於時間): 0.00% (當前時間 {current_time_seconds}s 早於開始時間 {start_time_seconds}s)")
-            elif 'frame=' in line_strip: # 如果沒有解析到時間，嘗試回退到幀數（作為備用方案）
-                frame_match = re.search(r'frame=\s*(\d+)', line_strip)
-                if frame_match:
-                    current_frame = int(frame_match.group(1))
-                    # 這裡我們沒有總幀數，所以只能做一個非常粗略的估計或不更新進度
-                    # 為了避免進度條不動，可以給一個緩慢增長的假進度，但最好是依賴時間
-                    if actual_total_duration_seconds is None: # 只有在完全沒有時間信息時才用這個
-                        conversion_tasks[task_key]["progress"] = min(95, conversion_tasks[task_key].get("progress", 0) + 0.01) # 微小增加
-                        print(f"處理幀: {current_frame} (總時長未知，進度估算)")
-
+                progress = (progress_time_seconds / actual_total_duration_seconds) * 100
+                progress = min(100, max(0, progress)) # 限制在 0-100
+                conversion_tasks[task_key]["progress"] = progress
+                print(f"轉碼進度 (基於時間): {progress:.2f}% (當前時間: {current_time_seconds}s / 實際總長: {actual_total_duration_seconds}s)")
     
     # 使用 stderr=subprocess.PIPE 來捕獲 ffmpeg 的進度輸出
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True)
@@ -305,8 +291,6 @@ def ts_to_mp4(ts_file, quality="high", task_id=None, task_key_override=None):
         })
         print(f"轉碼失敗: {ts_file}")
         return None
-
-
 
 # 添加新的 API 端点，用于手动触发转码（约在第 600 行后）
 @app.post("/tasks/{task_id}/recordings/{filename}/convert")
