@@ -7,3 +7,4 @@ aiofiles>=23.1.0
 streamlink>=6.4.1
 psutil>=5.9.5
 Pillow>=9.5.0
+beautifulsoup4>=4.12.0
