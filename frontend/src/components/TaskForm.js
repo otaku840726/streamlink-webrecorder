@@ -25,6 +25,7 @@ const defaultForm = {
   params: "",
   hls_enable: false,
   default_conversion_quality: "high", // 新增預設轉碼品質
+  tool: "Streamlink" // 新增工具選項預設
 };
 
 export default function TaskForm({ open, task, onClose }) {
@@ -148,6 +149,20 @@ export default function TaskForm({ open, task, onClose }) {
           }
           label="啟用 HLS 串流（直播 m3u8，直播觀看專用）"
         />
+        {/* 新增工具選擇 */}
+        <FormControl fullWidth margin="dense">
+          <InputLabel id="tool-label">工具</InputLabel>
+          <Select
+            labelId="tool-label"
+            name="tool"
+            value={form.tool}
+            label="工具"
+            onChange={handleChange}
+          >
+            <MenuItem value="Streamlink">Streamlink</MenuItem>
+            <MenuItem value="追劇">追劇</MenuItem>
+          </Select>
+        </FormControl>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>取消</Button>
