@@ -153,11 +153,13 @@ export default function RecordingList({ task, onPlay }) {
           const converting = conversionStatus[taskKey];
 
           return (
-            <Grid item key={rec.file} xs={12} sm={recordings.length > 1 ? 6 : 12} md={recordings.length > 1 ? 4 : 8} lg={recordings.length > 1 ? 3 : 6}>
+            <Grid item key={rec.file} xs={12} sm={recordings.length > 1 ? 6 : 12} md={recordings.length > 1 ? 4 : 10} lg={recordings.length > 1 ? 3 : 8}>
               <Card sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                 <ThumbnailCarousel taskId={task.id} filename={rec.file} />
                 <CardContent sx={{ flexGrow: 1 }}>
-                  <Typography variant="subtitle1" noWrap>{rec.file}</Typography>
+                  <Typography variant="subtitle1" component="div" sx={{ wordBreak: 'break-all', mb: 0.5 }}>
+                    {rec.file}
+                  </Typography>
                   <Typography variant="body2" color="text.secondary">大小: {(rec.size / 1024 / 1024).toFixed(1)} MB</Typography>
                   <Typography variant="body2" color="text.secondary">錄影時間: {new Date(rec.mtime).toLocaleString()}</Typography>
 
