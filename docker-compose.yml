@@ -16,6 +16,9 @@ services:
       - ./recordings:/recordings
       - ./hls:/hls
       - ./thumbnails:/thumbnails
+      - ~/.cache/ms-playwright:/root/.cache/ms-playwright
+      - ~/.config/chromium:/root/.config/chromium
+
     restart: unless-stopped
 
   frontend:
