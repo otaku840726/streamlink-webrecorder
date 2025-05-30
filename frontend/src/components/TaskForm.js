@@ -57,9 +57,9 @@ export default function TaskForm({ open, task, onClose }) {
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" PaperProps={{ sx: { m: 1, width: 'calc(100% - 16px)' } }}>
       <DialogTitle>{task ? "編輯任務" : "新增任務"}</DialogTitle>
-      <DialogContent>
+      <DialogContent sx={{ overflowY: 'auto', p: 2 }}>
         <TextField
           autoFocus
           margin="dense"

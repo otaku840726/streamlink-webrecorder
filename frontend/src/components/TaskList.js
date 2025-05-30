@@ -44,7 +44,7 @@ export default function TaskList({ tasks, reload, onSelectTask, onShowLogs, onEd
     }, [tasks]);
 
     return (
-        <Box sx={{ p: 2, overflowX: 'hidden' }}>
+        <Box sx={{ p: 2, pb: 4, overflowX: 'hidden' }}> {/* Added pb: 4 for bottom padding */}
             <Grid container spacing={2} justifyContent="flex-start">
                 {tasks.map((t) => (
                     <Grid item key={t.id} xs={12} sm={6} md={4} lg={3}>
