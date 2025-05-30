@@ -153,8 +153,8 @@ export default function RecordingList({ task, onPlay }) {
           const converting = conversionStatus[taskKey];
 
           return (
-            <Grid item key={rec.file} xs={12} sm={6} md={4} lg={3}>
-              <Card sx={{ /* 样式省略 */ }}>
+            <Grid item key={rec.file} xs={12} sm={recordings.length > 1 ? 6 : 12} md={recordings.length > 1 ? 4 : 8} lg={recordings.length > 1 ? 3 : 6}>
+              <Card sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                 <ThumbnailCarousel taskId={task.id} filename={rec.file} />
                 <CardContent sx={{ flexGrow: 1 }}>
                   <Typography variant="subtitle1" noWrap>{rec.file}</Typography>
@@ -188,7 +188,7 @@ export default function RecordingList({ task, onPlay }) {
                   )}
                 </CardContent>
                 {/* 底部按钮区（播放/转码/删除） */}
-                <Box sx={{ p: 1, pt: 0, display: 'flex', justifyContent: 'space-between' }}>
+                <Box sx={{ p: 1, pt: 0, display: 'flex', justifyContent: 'space-between', marginTop: 'auto' }}>
                   <Button
                     size="small" variant="outlined"
                     onClick={() => {
