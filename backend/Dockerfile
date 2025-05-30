@@ -17,10 +17,10 @@ RUN apt-get update \
 
 # 安装 Playwright 运行时依赖
 RUN apt-get update && apt-get install -y \
-    libgtk-4-1 libgraphene-1.0-0 libwoff2-1 \
+    libgtk-4-1 libgraphene-1.0-0 \
     gstreamer1.0-gl gstreamer1.0-plugins-base \
     gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
-    gstreamer1.0-libav libavif16 libharfbuzz-icu0 \
+    gstreamer1.0-libav libwoff1 libavif13  libharfbuzz-icu0 \
     libenchant-2-2 libhyphen0 libmanette-0.2-0 \
   && rm -rf /var/lib/apt/lists/*
 
