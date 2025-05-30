@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from typing import List, Optional
+from typing import List, Optional, Literal
 import subprocess
 from uuid import uuid4
 from datetime import datetime
@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 import psutil
 from PIL import Image
 import time
+from handlers.base_handler import get_handler
 
 
 HLS_DIR = "/hls"
@@ -62,7 +63,8 @@ class Task(BaseModel):
     save_dir: str
     params: Optional[str] = ""
     hls_enable: Optional[bool] = False
-    default_conversion_quality: Optional[str] = "high" # 新增預設轉碼品質
+    default_conversion_quality: Optional[str] = "high"
+    tool: Literal["Streamlink", "追劇"] = "Streamlink"
 
 def get_tasks():
     if not os.path.exists(TASKS_FILE):
@@ -328,69 +330,106 @@ def get_conversion_status(task_key: str = None):
         return {task_key: conversion_tasks.get(task_key, {"status": "not_found"})}
     return conversion_tasks
 
+
+# 定期生成縮圖的函數
+def generate_thumbnails_periodically(video_path, task_id_for_log, stop_flag):
+    last_size = 0
+    thumbnail_interval_seconds = 60  # 每30秒嘗試生成一次縮圖
+    min_size_change_for_thumbnail = 1024 * 1024  # 文件大小變化超過1MB才生成
+    thumbnail_count = 0
+    max_thumbnails_during_recording = 15  # 錄製過程中最多生成10張
+
+    while not stop_flag.is_set():
+        time.sleep(thumbnail_interval_seconds)
+        
+        if thumbnail_count >= max_thumbnails_during_recording:
+            write_log(task_id_for_log, "thumbnail_limit", "已達到錄製中縮圖生成上限")
+            break
+            
+        try:
+            if not os.path.exists(video_path):
+                continue
+                
+            current_size = os.path.getsize(video_path)
+            if current_size <= 0 or (current_size - last_size <= min_size_change_for_thumbnail):
+                continue
+                
+            write_log(task_id_for_log, "thumbnail_attempt", 
+                     f"嘗試為 {video_path} 生成縮圖 (大小: {current_size})")
+            
+            # 使用 ffmpeg 從當前 TS 文件生成一張縮圖
+            # 這裡我們只取影片開頭附近的一幀作為臨時縮圖
+            # 更複雜的邏輯可以選擇不同的時間點
+            base_name = os.path.splitext(os.path.basename(video_path))[0]
+            temp_thumbnail_dir = os.path.join(THUMBNAILS_DIR, base_name)
+            os.makedirs(temp_thumbnail_dir, exist_ok=True)
+            
+            # 生成一個唯一的縮圖文件名，避免覆蓋
+            thumbnail_filename = f"{base_name}_live_{thumbnail_count + 1:03d}.jpg"
+            thumbnail_path = os.path.join(temp_thumbnail_dir, thumbnail_filename)
+            
+            # 從影片的第 N 秒取一幀 (例如，每30秒取一次，就取第 30*thumbnail_count 秒)
+            # 這裡簡化為取影片開頭的幾幀，避免讀取整個文件
+            # 注意：對正在寫入的TS文件操作可能不穩定
+            ffmpeg_cmd = [
+                "ffmpeg", "-y", "-i", video_path,
+                "-ss", "00:00:01",  # 嘗試從影片的第1秒取幀
+                "-frames:v", "1",
+                "-vf", "scale=128:-1:flags=lanczos",
+                "-qscale:v", "2",
+                thumbnail_path
+            ]
+            
+            subprocess.run(ffmpeg_cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            
+            if os.path.exists(thumbnail_path):
+                write_log(task_id_for_log, "thumbnail_live_generated", 
+                         f"錄製中縮圖生成: {thumbnail_path}")
+                thumbnail_count += 1
+                last_size = current_size
+                
+        except Exception as e:
+            write_log(task_id_for_log, "thumbnail_live_error", 
+                     f"錄製中生成縮圖錯誤: {str(e)}")
+
+
 def record_stream(task):
+    # 準備存放路徑
     save_path = os.path.join(RECORDINGS_DIR, task.save_dir.strip("/"))
     os.makedirs(save_path, exist_ok=True)
+
+    handler = get_handler(task)
+    # 解析 URL 清單（追劇模式或特定站點）
+    urls = handler.parse_urls(task.url)
+    # 若無列表，則以單一 URL 處理
+    if not urls:
+        urls = [task.url]
+
+    # 讀取已錄列表
+    meta_file = os.path.join(save_path, "recorded.json")
+    recorded = set()
+    if os.path.exists(meta_file):
+        recorded = set(json.load(open(meta_file, 'r', encoding='utf-8')))
+
+    # 過濾新 URL
+    new_urls = [u for u in urls if u not in recorded]
+    if not new_urls:
+        write_log(task.id, "info", "沒有新的串流可錄製")
+        return
+
+    # 產生統一 out_file
+    u = new_urls[0]
     nowstr = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_file = os.path.join(save_path, f"{task.name}_{nowstr}.ts")
 
-    base_cmd = [
-        "streamlink",
-        *(task.params.split() if task.params else []),
-        task.url,
-        "best",
-        "-o", out_file
-    ]
+    # 透過 handler 生成具體指令
+    base_cmd = handler.build_cmd(u, task, out_file)
+
     write_log(task.id, "start", f"CMD: {' '.join(base_cmd)}")
     proc = None
     conversion_triggered = False # 新增標誌，用於跟踪是否已觸發轉碼
     thumbnail_thread = None # 用於在錄製過程中生成縮圖的線程
-
-    # 定期生成縮圖的函數
-    def generate_thumbnails_periodically(video_path, task_id_for_log):
-        last_size = 0
-        thumbnail_interval_seconds = 300 # 每30秒嘗試生成一次縮圖
-        min_size_change_for_thumbnail = 1024 * 1024 # 文件大小變化超過1MB才生成
-        thumbnail_count = 0
-        max_thumbnails_during_recording = 15 # 錄製過程中最多生成10張
-
-        while proc and proc.poll() is None: # 當錄製進程仍在運行時
-            time.sleep(thumbnail_interval_seconds)
-            if thumbnail_count >= max_thumbnails_during_recording:
-                write_log(task_id_for_log, "thumbnail_limit", "已達到錄製中縮圖生成上限")
-                break
-            try:
-                if os.path.exists(video_path):
-                    current_size = os.path.getsize(video_path)
-                    if current_size > 0 and (current_size - last_size > min_size_change_for_thumbnail):
-                        write_log(task_id_for_log, "thumbnail_attempt", f"嘗試為 {video_path} 生成縮圖 (大小: {current_size})")
-                        # 使用 ffmpeg 從當前 TS 文件生成一張縮圖
-                        # 這裡我們只取影片開頭附近的一幀作為臨時縮圖
-                        # 更複雜的邏輯可以選擇不同的時間點
-                        temp_thumbnail_dir = os.path.join(THUMBNAILS_DIR, os.path.splitext(os.path.basename(video_path))[0])
-                        os.makedirs(temp_thumbnail_dir, exist_ok=True)
-                        # 生成一個唯一的縮圖文件名，避免覆蓋
-                        thumbnail_filename = f"{os.path.splitext(os.path.basename(video_path))[0]}_live_{thumbnail_count + 1:03d}.jpg"
-                        thumbnail_path = os.path.join(temp_thumbnail_dir, thumbnail_filename)
-                        
-                        # 從影片的第 N 秒取一幀 (例如，每30秒取一次，就取第 30*thumbnail_count 秒)
-                        # 這裡簡化為取影片開頭的幾幀，避免讀取整個文件
-                        # 注意：對正在寫入的TS文件操作可能不穩定
-                        ffmpeg_cmd = [
-                            "ffmpeg", "-y", "-i", video_path,
-                            "-ss", "00:00:01", # 嘗試從影片的第1秒取幀
-                            "-frames:v", "1",
-                            "-vf", "scale=128:-1:flags=lanczos",
-                            "-qscale:v", "2",
-                            thumbnail_path
-                        ]
-                        subprocess.run(ffmpeg_cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                        if os.path.exists(thumbnail_path):
-                            write_log(task_id_for_log, "thumbnail_live_generated", f"錄製中縮圖生成: {thumbnail_path}")
-                            thumbnail_count += 1
-                        last_size = current_size
-            except Exception as e:
-                write_log(task_id_for_log, "thumbnail_live_error", f"錄製中生成縮圖錯誤: {str(e)}")
+    stop_flag = threading.Event()
 
     try:
         # ========== 註冊進程 ==========
@@ -398,7 +437,7 @@ def record_stream(task):
         active_recordings[task.id] = proc
 
         # 啟動定期生成縮圖的線程
-        thumbnail_thread = threading.Thread(target=generate_thumbnails_periodically, args=(out_file, task.id), daemon=True)
+        thumbnail_thread = threading.Thread(target=generate_thumbnails_periodically, args=(out_file, task.id, stop_flag), daemon=True)
         thumbnail_thread.start()
 
         stdout, stderr = proc.communicate()
@@ -408,6 +447,11 @@ def record_stream(task):
             write_log(task.id, "end", f"SUCCESS: {out_file}")
             # --- 自動轉成 MP4 --- (統一使用 ts_to_mp4 函數)
             if os.path.exists(out_file):
+                # 標記已錄
+                recorded.add(u)
+                with open(meta_file, 'w', encoding='utf-8') as mf:
+                    json.dump(list(recorded), mf, ensure_ascii=False, indent=2)
+
                 # 錄製完成後，生成最終的完整縮圖集
                 generate_thumbnail(out_file) # 使用原始的 generate_thumbnail 生成完整縮圖
                 # 使用任務中定義的預設品質，如果沒有則使用 'high'
@@ -427,6 +471,7 @@ def record_stream(task):
     finally:
         # ========== 錄影結束自動移除進程 ==========
         active_recordings.pop(task.id, None)
+        stop_flag.set()
         if thumbnail_thread and thumbnail_thread.is_alive():
             # 確保縮圖線程結束 (雖然是 daemon，但明確 join 更安全)
             # proc.poll() is None 條件在上面循環中已處理，這裡可以簡化
