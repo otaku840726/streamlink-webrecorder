@@ -206,57 +206,70 @@ def ts_to_mp4(ts_file, quality="high", task_id=None, task_key_override=None):
     # 使用線程來讀取進程輸出，確保實時更新進度
     def read_output(proc):
         # 用於跟踪進度的變量
-        frame_count = 0
-        total_frames = None
-        fps = None
-        duration = None
-        
+        total_duration_seconds = None
+        start_time_seconds = 0  # 默認為0，如果解析到start則更新
+        actual_total_duration_seconds = None
+
         # 從 stderr 讀取，因為 ffmpeg 的進度信息輸出到 stderr
         for line in iter(proc.stderr.readline, ''):
             if not line:  # 如果讀取到空行，說明流結束了
                 break
-                
+            
+            line_strip = line.strip()
             # 打印每一行輸出，方便調試
-            print(f"FFMPEG: {line.strip()}")
+            print(f"FFMPEG: {line_strip}")
+
+            # 解析 Duration 和 start
+            duration_match = re.search(r'Duration:\s*(\d{2}):(\d{2}):(\d{2}\.\d+)', line_strip)
+            if duration_match:
+                hours = int(duration_match.group(1))
+                minutes = int(duration_match.group(2))
+                seconds = float(duration_match.group(3))
+                total_duration_seconds = hours * 3600 + minutes * 60 + seconds
+                print(f"解析到 Duration: {total_duration_seconds}s")
+
+            start_match = re.search(r'start:\s*(\d+\.?\d*)', line_strip)
+            if start_match:
+                start_time_seconds = float(start_match.group(1))
+                print(f"解析到 start: {start_time_seconds}s")
             
-            # 嘗試獲取總幀數
-            if total_frames is None and "frame=" in line and "fps=" in line:
-                # 嘗試從輸出中獲取總幀數和 fps
-                fps_match = re.search(r'fps=\s*(\d+\.?\d*)', line)
-                if fps_match:
-                    fps = float(fps_match.group(1))
-                    print(f"檢測到 FPS: {fps}")
+            if total_duration_seconds is not None:
+                actual_total_duration_seconds = total_duration_seconds - start_time_seconds
+                if actual_total_duration_seconds <= 0: # 防止 start 比 duration 大或相等的情況
+                    print(f"警告: 計算出的實際總時長 <= 0 ({actual_total_duration_seconds}s), 將使用原始Duration進行計算。")
+                    actual_total_duration_seconds = total_duration_seconds
+                print(f"計算出的實際總時長: {actual_total_duration_seconds}s (Duration: {total_duration_seconds}s, Start: {start_time_seconds}s)")
+
+            # 解析當前 time
+            time_match = re.search(r'time=(\d{2}):(\d{2}):(\d{2}\.\d+)', line_strip)
+            if time_match and actual_total_duration_seconds and actual_total_duration_seconds > 0:
+                hours = int(time_match.group(1))
+                minutes = int(time_match.group(2))
+                seconds = float(time_match.group(3))
+                current_time_seconds = hours * 3600 + minutes * 60 + seconds
                 
-                # 如果我們有 fps 和 duration，可以估算總幀數
-                if fps and duration is None:
-                    # 嘗試獲取時長
-                    duration_match = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.\d+)', line)
-                    if duration_match:
-                        hours = int(duration_match.group(1))
-                        minutes = int(duration_match.group(2))
-                        seconds = float(duration_match.group(3))
-                        duration = hours * 3600 + minutes * 60 + seconds
-                        total_frames = int(duration * fps)
-                        print(f"估算總幀數: {total_frames} (時長: {duration}s, FPS: {fps})")
-            
-            # 獲取當前處理的幀數
-            frame_match = re.search(r'frame=\s*(\d+)', line)
-            if frame_match:
-                current_frame = int(frame_match.group(1))
-                frame_count = current_frame  # 更新當前幀數
+                # 進度是相對於 start 時間之後的當前時間
+                progress_time_seconds = current_time_seconds - start_time_seconds
                 
-                # 如果我們知道總幀數，就可以計算進度
-                if total_frames:
-                    progress = (current_frame / total_frames) * 100
-                    # 限制在 0-100 範圍內
-                    progress = min(100, max(0, progress))
+                if progress_time_seconds >= 0:
+                    progress = (progress_time_seconds / actual_total_duration_seconds) * 100
+                    progress = min(100, max(0, progress)) # 限制在 0-100
                     conversion_tasks[task_key]["progress"] = progress
-                    print(f"轉碼進度: {progress:.2f}% (幀 {current_frame}/{total_frames})")
+                    print(f"轉碼進度 (基於時間): {progress:.2f}% (當前時間: {current_time_seconds}s / 實際總長: {actual_total_duration_seconds}s)")
                 else:
-                    # 如果不知道總幀數，至少顯示當前幀數
-                    print(f"處理幀: {current_frame} (總幀數未知)")
-                    # 使用一個假的進度值，讓用戶知道轉碼正在進行
-                    conversion_tasks[task_key]["progress"] = min(95, frame_count / 1000)  # 假設大多數視頻至少有1000幀
+                    # 如果 current_time_seconds < start_time_seconds，進度視為0
+                    conversion_tasks[task_key]["progress"] = 0
+                    print(f"轉碼進度 (基於時間): 0.00% (當前時間 {current_time_seconds}s 早於開始時間 {start_time_seconds}s)")
+            elif 'frame=' in line_strip: # 如果沒有解析到時間，嘗試回退到幀數（作為備用方案）
+                frame_match = re.search(r'frame=\s*(\d+)', line_strip)
+                if frame_match:
+                    current_frame = int(frame_match.group(1))
+                    # 這裡我們沒有總幀數，所以只能做一個非常粗略的估計或不更新進度
+                    # 為了避免進度條不動，可以給一個緩慢增長的假進度，但最好是依賴時間
+                    if actual_total_duration_seconds is None: # 只有在完全沒有時間信息時才用這個
+                        conversion_tasks[task_key]["progress"] = min(95, conversion_tasks[task_key].get("progress", 0) + 0.01) # 微小增加
+                        print(f"處理幀: {current_frame} (總時長未知，進度估算)")
+
     
     # 使用 stderr=subprocess.PIPE 來捕獲 ffmpeg 的進度輸出
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True)

@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM akashisn/ffmpeg:7.0.2
 
 WORKDIR /app
 
@@ -8,44 +8,7 @@ RUN apt-get update && apt-get install -y \
     yasm nasm cmake ninja-build \
     python3 python3-pip python3-venv \
     wget curl ca-certificates \
-    libva-dev libdrm-dev libvpl-dev \
-    intel-media-va-driver-non-free \
-    libass-dev libfreetype6-dev libmp3lame-dev \
-    libopus-dev libvpx-dev libx264-dev libx265-dev \
-    libvorbis-dev libxcb1-dev libxcb-shm0-dev libxcb-xfixes0-dev \
-    libfribidi-dev libxml2-dev libbluray-dev \
-    ocl-icd-opencl-dev \
     && rm -rf /var/lib/apt/lists/*
-
-# 編譯並安裝最新 ffmpeg（支援 qsv_params）
-RUN git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git ffmpeg && \
-    cd ffmpeg && \
-    ./configure \
-      --prefix=/usr \
-      --enable-gpl \
-      --enable-nonfree \
-      --enable-libass \
-      --enable-libfreetype \
-      --enable-libmp3lame \
-      --enable-libopus \
-      --enable-libvorbis \
-      --enable-libvpx \
-      --enable-libx264 \
-      --enable-libx265 \
-      --enable-libxml2 \
-      --enable-libdrm \
-      --enable-libvpl \
-      --enable-vaapi \
-      --enable-opencl \
-      --enable-libbluray \
-      --enable-pthreads \
-      --enable-shared \
-      --enable-version3 \
-      --enable-libfribidi \
-      --disable-debug \
-      --disable-doc && \
-    make -j$(nproc) && make install && \
-    cd .. && rm -rf ffmpeg
 
 # python 相關依賴
 COPY requirements.txt .
@@ -56,7 +19,7 @@ RUN pip install -r requirements.txt
 RUN pip install streamlink
 
 RUN mkdir -p /root/.local/share/streamlink/plugins
-COPY stripchat.py /root/.local/share/streamlink/plugins/stripchat.py
+COPY plugins /root/.local/share/streamlink/plugins
 
 COPY . .
 
