@@ -74,6 +74,10 @@ class GenericBingeHandler(StreamHandler):
         finally:
             loop.close()
 
+    def get_new_url(self, urls: str, records: set[str]):
+        new_urls = [u for u in urls if u not in records]
+        return new_urls[0] if new_urls else None
+        
     async def get_video_src_async(self, episode_url: str) -> str:
         await self.init_browser()
         try:
