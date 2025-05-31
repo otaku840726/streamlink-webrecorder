@@ -232,20 +232,14 @@ class GenericBingeHandler(StreamHandler):
                 print(f"[ERROR] 點擊播放按鈕時出異常: {e}")
                 raise RuntimeError("無法點擊播放按鈕，無法載入 video 元素") from e
 
-            # 4. 等待 <video> 出現且它的 src 屬性非空
+            # 4. 等待 <video> 出現且具有 src 屬性
             try:
-                print("[DEBUG] 等待 <video> 出現並且 src 屬性非空（最長等 10 秒）...")
-                await page.wait_for_function(
-                    """() => {
-                        const vid = document.querySelector("video");
-                        return vid && vid.src && vid.src.trim().length > 0;
-                    }""",
-                    timeout=10000
-                )
-                print("[DEBUG] 已檢測到 <video> 且 src 屬性已被填入。")
+                print("[DEBUG] 等待有 <video src> 出現 (最多等 10 秒)...")
+                await page.wait_for_selector("video[src]", timeout=10000)
+                print("[DEBUG] 已偵測到 <video> 並且它已有 src 屬性。")
             except Exception as e:
-                print(f"[ERROR] 等待 video.src 時發生異常：{e}")
-                raise RuntimeError("等待 video.src 逾時或發生錯誤") from e
+                print(f"[ERROR] 等待 video[src] 時發生異常（可能逾時或找不到元素）：{e}")
+                raise RuntimeError("等待 video[src] 逾時或出現錯誤") from e
 
             # 4. 从 DOM 直接获取 video.src
             print("[DEBUG] 执行 page.evaluate() 读取 video.src ...")
