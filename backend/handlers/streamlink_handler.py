@@ -6,6 +6,9 @@ class StreamlinkHandler(StreamHandler):
     def get_ext(self):
         return "ts"
 
+    def get_filename(self, url: str, task) -> str:
+        return f"{task.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{self.get_ext()}"
+
     def parse_urls(self, start_url: str) -> list[str]:
         # Streamlink 模式不預先解析
         return []

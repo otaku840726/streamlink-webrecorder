@@ -161,6 +161,67 @@ class Anime1Handler(StreamHandler):
 
     def get_ext(self):
         return "mp4"
+        
+    def get_filename(self, url: str, task) -> str:
+        """
+        1. 根据传入的 anime1.me 页面 URL，发送 HTTP GET 获取 HTML。
+        2. 用 BeautifulSoup 解析，优先抓取 <h2 class="entry-title">，再退而求其次抓 <title>。
+        3. 如果都找不到，就用 URL path 的最后一段做备用名称。
+        4. 将抓到的名称做文件名合法化，最后加上 .mp4。
+        """
+        print(f"[DEBUG] get_filename() called with url = {url}")
+
+        try:
+            # 1. 发送 HTTP GET 请求获取 HTML
+            resp = requests.get(url, timeout=15)
+            resp.raise_for_status()
+            html = resp.text
+            print(f"[DEBUG] get_filename(): 成功获取页面 HTML (长度 {len(html)} 字符)")
+        except Exception as e:
+            print(f"[WARNING] get_filename(): 无法获取 URL {url} 的 HTML: {e}")
+            # 如果请求失败，就以 URL path 生成备用文件名
+            parsed = urlparse(url)
+            fallback = parsed.path.strip("/").replace("/", "_") or "anime1_video"
+            safe_fallback = re.sub(r'[\\\/\:\*\?\"<>\|]', "_", fallback)
+            filename = f"{safe_fallback}.mp4"
+            print(f"[DEBUG] get_filename(): 返回 fallback filename = {filename}")
+            return filename
+
+        # 2. 用 BeautifulSoup 解析
+        soup = BeautifulSoup(html, "html.parser")
+
+        # 3. 优先尝试抓 <h2 class="entry-title">
+        title = None
+        h2 = soup.find("h2", class_="entry-title")
+        if h2 and h2.text:
+            title = h2.text.strip()
+            print(f"[DEBUG] get_filename(): 从 <h2 class='entry-title'> 获取到标题: {title}")
+        else:
+            # 4. 再退而求其次，尝试抓 <title> 标签
+            title_tag = soup.find("title")
+            if title_tag and title_tag.text:
+                title = title_tag.text.strip()
+                print(f"[DEBUG] get_filename(): 从 <title> 获取到文字: {title}")
+            else:
+                print("[WARNING] get_filename(): 未找到 <h2> 也未找到 <title>，将使用 URL path 作为名称。")
+
+        # 5. 如果上述都没成功，就以 URL path 的最后一段做为标题
+        if not title:
+            parsed = urlparse(url)
+            # 例如 '/25302' → '25302'
+            last_segment = parsed.path.strip("/").replace("/", "_") or "anime1_video"
+            title = last_segment
+            print(f"[DEBUG] get_filename(): fallback 使用 URL 最后一段作为标题: {title}")
+
+        # 6. 进行文件名合法化
+        #    Windows/macOS/Linux 常见不能用的字符: \ / : * ? " < > |
+        safe_title = re.sub(r'[\\\/\:\*\?\"<>\|]', "_", title)
+        # 将多余的空格折成 underscore
+        safe_title = re.sub(r"\s+", "_", safe_title.strip())
+
+        filename = f"{safe_title}.mp4"
+        print(f"[DEBUG] get_filename(): 最终生成 filename = {filename}")
+        return filename
 
     def parse_urls(self, start_url: str) -> list[str]:
         print(f"[DEBUG] parse_urls() called with start_url = {start_url}")

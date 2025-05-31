@@ -468,9 +468,8 @@ def record_stream(task):
             recorded = set()
 
     u = handler.get_new_url(urls, recorded)
-    nowstr = datetime.now().strftime("%Y%m%d_%H%M%S")
-    ext = handler.get_ext()
-    out_file = os.path.join(save_path, f"{task.name}_{nowstr}.{ext}")
+    filename = handler.get_filename(u, task)
+    out_file = os.path.join(save_path, filename)
 
     proc = None
     conversion_triggered = False

@@ -99,12 +99,137 @@ class BahamutHandler(StreamHandler):
     def get_ext(self):
         return "ts"
 
+    def get_filename(self, url: str, task) -> str:
+        """
+        仅用 requests 抓标题，不启用 Playwright。逻辑：
+        1. 先从 URL query 解析 sn 作为 fallback 名称。
+        2. 用 requests GET 页面 HTML，用 BeautifulSoup 解析：
+           a. 优先尝试抓取 class="anime_name" 下的 <h1>（Selector: ".anime_name > h1"）。
+           b. 如果找不到，再尝试抓 <meta property="og:title"> 的 content。
+           c. 如果还没找到，就抓 <title> 标签文本。
+        3. 如果以上都无法获取到标题，就用 sn 作为名称。
+        4. 对获取到的名称做文件名安全化（将 \ / : * ? " < > | 等字符替换成 "_"，并以 "_" 替换连续空白）。
+        5. 最后在名称末尾加上 ".mp4" 并返回。
+        """
+        print(f"[DEBUG] get_filename() called with url = {url}")
+
+        # 1. 从 URL 中解析 sn 作为 fallback
+        parsed_url = urlparse(url)
+        qs = urllib.parse.parse_qs(parsed_url.query)
+        sn_values = qs.get("sn", [])
+        if sn_values:
+            fallback_name = sn_values[0]
+        else:
+            fallback_name = "anime_video"
+        print(f"[DEBUG] get_filename(): 解析到 sn (fallback) = {fallback_name}")
+
+        title = None
+
+        # 2. 用 requests 获取页面 HTML
+        try:
+            resp = requests.get(url, timeout=15)
+            resp.raise_for_status()
+            html = resp.text
+            print(f"[DEBUG] get_filename(): 成功取得 HTML (长度 {len(html)} 字符)")
+        except Exception as e:
+            print(f"[WARNING] get_filename(): 无法获取页面 HTML: {e}")
+            # 直接使用 fallback
+            safe_fallback = re.sub(r'[\\\/\:\*\?\"<>\|]', "_", fallback_name)
+            filename = f"{safe_fallback}.mp4"
+            print(f"[DEBUG] get_filename(): 返回 fallback filename = {filename}")
+            return filename
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        # 2.a 优先抓取 <div class="anime_name"><h1>…</h1></div>
+        h1 = soup.select_one(".anime_name > h1")
+        if h1 and h1.text:
+            title = h1.text.strip()
+            print(f"[DEBUG] get_filename(): 从 .anime_name > h1 获取到标题: {title}")
+        else:
+            # 2.b 再尝试 <meta property="og:title">
+            og = soup.find("meta", property="og:title")
+            if og and og.get("content"):
+                title = og["content"].strip()
+                print(f"[DEBUG] get_filename(): 从 <meta property='og:title'> 获取到标题: {title}")
+            else:
+                # 2.c 再尝试 <title>
+                title_tag = soup.find("title")
+                if title_tag and title_tag.text:
+                    title = title_tag.text.strip()
+                    print(f"[DEBUG] get_filename(): 从 <title> 获取到文本: {title}")
+                else:
+                    print("[WARNING] get_filename(): 未找到 .anime_name > h1、<meta og:title> 或 <title>，将使用 sn 作为标题。")
+                    title = None
+
+        # 3. 如果仍然没有标题，使用 sn
+        if not title:
+            title = fallback_name
+            print(f"[DEBUG] get_filename(): 使用 fallback sn 作为标题: {title}")
+
+        # 4. 文件名安全化：将 \ / : * ? \" < > | 全部替换成 "_"，再将连续空白替换为 "_"
+        safe_title = re.sub(r'[\\\/\:\*\?\"<>\|]', "_", title)
+        safe_title = re.sub(r"\s+", "_", safe_title.strip())
+
+        # 5. 最终返回
+        filename = f"{safe_title}.mp4"
+        print(f"[DEBUG] get_filename(): 最终生成 filename = {filename}")
+        return filename
+
+
     def parse_urls(self, start_url: str) -> list[str]:
-        # Streamlink 模式不預先解析
-        return []
+        """
+        解析 Ani.Gamer 動畫頁面中，「所有集數」的 URL。
+        1. 發送 HTTP GET 取得 start_url 的 HTML。
+        2. 用 BeautifulSoup 解析 <section class="season"> 中所有 <a> 標籤。
+        3. 將 href（通常形如 "?sn=XXXXX"）轉成完整 URL，並依序回傳列表。
+        """
+        print(f"[DEBUG] parse_urls() called with start_url = {start_url}")
+
+        try:
+            resp = requests.get(start_url, timeout=15)
+            resp.raise_for_status()
+            html = resp.text
+            print(f"[DEBUG] parse_urls(): 成功取得 HTML (長度 {len(html)} 字符)")
+        except Exception as e:
+            print(f"[ERROR] parse_urls(): 無法取得頁面 HTML: {e}")
+            return []
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        # 找到 <section class="season">
+        season_section = soup.find("section", class_="season")
+        if not season_section:
+            print("[WARNING] parse_urls(): 未找到 <section class='season'>，回傳空列表。")
+            return []
+
+        # 在 season_section 底下抓所有 <a>，並建構完整 URL
+        anchors = season_section.find_all("a", href=True)
+        if not anchors:
+            print("[WARNING] parse_urls(): <section class='season'> 中未找到任何 <a>，回傳空列表。")
+            return []
+
+        urls = []
+        for a in anchors:
+            href = a.get("href").strip()
+            # 若 href 以 '?' 開頭 (如 "?sn=40262")，用 urljoin 加上 base
+            full_url = urllib.parse.urljoin(start_url, href)
+            print(f"[DEBUG] parse_urls(): 抓到 href = {href}，對應 full_url = {full_url}")
+            urls.append(full_url)
+
+        print(f"[DEBUG] parse_urls(): 最終回傳 {len(urls)} 個 URL → {urls}")
+        return urls
+
 
     def get_new_url(self, urls: str, records: set[str]):
-        return urls[0] if urls else None
+        print(f"[DEBUG] get_new_url() called.")
+        print(f"        傳入的 urls: {urls}")
+        print(f"        傳入的 records: {records}")
+        new_urls = [u for u in urls if u not in records]
+        print(f"[DEBUG] 比對後的 new_urls: {new_urls}")
+        new_url = new_urls[0] if new_urls else None
+        print(f"[DEBUG] 回傳的新 URL: {new_url}")
+        return new_url
 
     def get_final_url(self, episode_url: str):
         return episode_url
