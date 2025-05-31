@@ -73,10 +73,10 @@ def get_handler(task) -> StreamHandler:
         # 先匹配專屬 handler
         for pattern, handler in _registry:
             if pattern.search(task.url):
-                print(f"[DEBUG] 匹配到專屬 handler：{handler}")
+                print(f"[DEBUG] 匹配到專屬 handler：{handler} for {task.url}")
                 return handler
                 return handler
         
     from handlers.streamlink_handler import StreamlinkHandler
-    print(f"[DEBUG] 使用預設 handler：StreamlinkHandler")
+    print(f"[DEBUG] 使用預設 handler：StreamlinkHandler for {task.url}")
     return StreamlinkHandler()
