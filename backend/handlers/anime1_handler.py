@@ -32,7 +32,7 @@ class Anime1Handler(StreamHandler):
             print("[DEBUG] 呼叫 BrowserManager.init() 之前")
             self.context = await BrowserManager.init()
             print("[DEBUG] context 取得成功，建立新 page 中...")
-            self.page = await context.new_page()
+            self.page = await self.context.new_page()
             print("[DEBUG] 已開啟新 page")
 
     async def close_browser(self):
