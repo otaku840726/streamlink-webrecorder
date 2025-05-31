@@ -224,16 +224,28 @@ class GenericBingeHandler(StreamHandler):
             await page.goto(url, wait_until="load")
             print("[DEBUG] 页面加载完成。")
 
-            # 3. 点击播放按钮，让 <video> 元素出现并载入 src
+            # 3. 點擊播放按鈕，讓 <video> 元素載入 src
             try:
-                print("[DEBUG] 点击播放按钮 (.vjs-big-play-centered) ...")
+                print("[DEBUG] 點擊播放按鈕 (.vjs-big-play-centered) ...")
                 await page.click(".vjs-big-play-centered")
-                print("[DEBUG] 播放按钮已点击，等待 video 元素出现 (最多等 10 秒)...")
-                await page.wait_for_selector("video", timeout=10000)
-                print("[DEBUG] video 元素已出现。")
             except Exception as e:
-                print(f"[ERROR] 点击播放或等待 video 元素时出异常: {e}")
-                raise RuntimeError("无法在页面上点击播放或找到 <video> 元素") from e
+                print(f"[ERROR] 點擊播放按鈕時出異常: {e}")
+                raise RuntimeError("無法點擊播放按鈕，無法載入 video 元素") from e
+
+            # 4. 等待 <video> 出現且它的 src 屬性非空
+            try:
+                print("[DEBUG] 等待 <video> 出現並且 src 屬性非空（最長等 10 秒）...")
+                await page.wait_for_function(
+                    """() => {
+                        const vid = document.querySelector("video");
+                        return vid && vid.src && vid.src.trim().length > 0;
+                    }""",
+                    timeout=10000
+                )
+                print("[DEBUG] 已檢測到 <video> 且 src 屬性已被填入。")
+            except Exception as e:
+                print(f"[ERROR] 等待 video.src 時發生異常：{e}")
+                raise RuntimeError("等待 video.src 逾時或發生錯誤") from e
 
             # 4. 从 DOM 直接获取 video.src
             print("[DEBUG] 执行 page.evaluate() 读取 video.src ...")
