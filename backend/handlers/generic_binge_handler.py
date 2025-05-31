@@ -295,7 +295,7 @@ class GenericBingeHandler(StreamHandler):
             video_domain = f"{parsed.scheme}://{parsed.netloc}"
             try:
                 # domain 必須與 video_url 相同（或更高層級）
-                cookies = await context.cookies(actual_mp4_url)
+                cookies = await self.browser.cookies(actual_mp4_url)
                 # cookies 會是 list of dict{"name", "value", "domain", …}
                 cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
                 print(f"[DEBUG] 取得 {len(cookies)} 個 cookies: {cookie_header}")
@@ -316,7 +316,6 @@ class GenericBingeHandler(StreamHandler):
 
             # 7. 關閉 Playwright
             print("[DEBUG] 關閉 Playwright context…")
-            await context.close()
             await browser.close()
             await playwright.stop()
             print("[DEBUG] Playwright 已關閉。")
