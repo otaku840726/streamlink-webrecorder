@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
-@register_handler(r"^https?://(?:www\.)?ani\.gamer\.com\.tw/.*")
+@register_handler(r"^https?:\/\/(?:www\.)?ani\.gamer\.com\.tw.*")
 class BahamutHandler(StreamHandler):
     def __init__(self):
         super().__init__()

@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
-@register_handler(r"^https?://(?:www\.)?anime1\.me/.*")
+@register_handler(r"^https?:\/\/(?:www\.)?anime1\.me.*")
 class Anime1Handler(StreamHandler):
     def __init__(self):
         super().__init__()
