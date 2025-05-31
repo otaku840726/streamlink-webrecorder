@@ -1,3 +1,4 @@
+print("[DEBUG] anime1_handler.py 已 import")
 import os
 import re
 import requests
