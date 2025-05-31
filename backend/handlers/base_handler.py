@@ -68,7 +68,7 @@ class StreamHandler(ABC):
         return proc
 
 from handlers.streamlink_handler import StreamlinkHandler
-# from handlers.bahamut_handler import BahamutHandler
+from handlers.bahamut_handler import BahamutHandler
 from handlers.anime1_handler import Anime1Handler
 
 def get_handler(task) -> StreamHandler:
