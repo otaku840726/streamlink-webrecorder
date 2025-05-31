@@ -216,7 +216,7 @@ class GenericBingeHandler(StreamHandler):
 
         print(f"[DEBUG] build_method() called with url={url}, task={task}, out_file={out_file}")
 
-        async def _fetch_video_and_download():
+        async def _get_video_info_and_cookies():
             print("[DEBUG] _download_via_player_button() 開始執行。")
 
             # 1. 啟動瀏覽器
