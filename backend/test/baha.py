@@ -73,7 +73,7 @@ if __name__ == "__main__":
     # 你給的 m3u8 範例
     m3u8_url = "https://bahamut.akamaized.net/ad/welcome_to_anigamer/540p/chunklist_b1200000.m3u8"
     # 最終要輸出的 TS 檔案
-    output_ts = "downloads/anigamer_video.ts"
+    output_ts = "anigamer_video.ts"
 
     try:
         final_ts = download_m3u8_with_custom_headers(m3u8_url, output_ts)
