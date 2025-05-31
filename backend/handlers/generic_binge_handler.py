@@ -276,37 +276,34 @@ class GenericBingeHandler(StreamHandler):
                     print(f"[ERROR] 获取 window.location.origin 时出错: {e}")
                     raise
 
-            # 6. 注册等待 download 事件
-            print("[DEBUG] 注册 download 事件监听 (page.wait_for_event('download'))")
-            download_task = page.wait_for_event("download")
+            print(f"[DEBUG] 準備用 page.request.get() 下載影片 (繼承 cookie/header)：{actual_mp4_url}")
 
-            # 7. 动态注入 <a download> 并触发下载
-            print(f"[DEBUG] 注入 <a download> 并触发下载，目标 URL = {actual_mp4_url}")
-            js = f"""
-                (() => {{
-                  const a = document.createElement("a");
-                  a.href = "{actual_mp4_url}";
-                  a.download = "";
-                  a.style.display = "none";
-                  document.body.appendChild(a);
-                  a.click();
-                  document.body.removeChild(a);
-                }})();
-            """
             try:
-                await page.evaluate(js)
-                print("[DEBUG] 已执行 JS，下载已触发。")
-            except Exception as e:
-                print(f"[ERROR] 执行下载触发 JS 时出异常: {e}")
-                raise
+                response = await page.request.get(actual_mp4_url, timeout=60000)
+                status = response.status
+                print(f"[DEBUG] page.request.get() 回傳狀態碼: {status}")
 
-            # 8. 等待浏览器触发 download 事件
-            print("[DEBUG] 等待 download 事件完成...")
-            try:
-                download = await download_task
-                print("[DEBUG] 收到 Download 事件。")
+                # 只要是 2xx 就視為成功
+                if not (200 <= status < 300):
+                    print(f"[ERROR] 下載影片失敗，狀態碼: {status}")
+                    await self.close_browser()
+                    raise RuntimeError(f"Video 下載失敗，status={status}")
+
+                print("[DEBUG] 開始讀取 response.body() ...")
+                content = await response.body()
+                print(f"[DEBUG] 取得影片串流大小: {len(content)} bytes")
+
+                # 把 bytes 寫入本地
+                Path(os.path.dirname(out_file)).mkdir(parents=True, exist_ok=True)
+                with open(out_file, "wb") as f:
+                    f.write(content)
+
+                actual_size = os.path.getsize(out_file)
+                print(f"[DEBUG] 寫入完成，本地檔案大小: {actual_size} bytes")
+
             except Exception as e:
-                print(f"[ERROR] 等待 Download 事件时出异常: {e}")
+                print(f"[ERROR] 使用 page.request.get() 下載時發生異常: {e}")
+                await self.close_browser()
                 raise
 
             # 9. 保存到本地 out_file
