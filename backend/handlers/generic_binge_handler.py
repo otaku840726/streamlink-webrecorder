@@ -314,11 +314,11 @@ class GenericBingeHandler(StreamHandler):
                 user_agent = ""
                 referer = ""
 
-            # 7. 關閉 Playwright
-            print("[DEBUG] 關閉 Playwright context…")
-            await browser.close()
-            await playwright.stop()
-            print("[DEBUG] Playwright 已關閉。")
+            # # 7. 關閉 Playwright
+            # print("[DEBUG] 關閉 Playwright context…")
+            # await browser.close()
+            # await playwright.stop()
+            # print("[DEBUG] Playwright 已關閉。")
 
             return actual_mp4_url, user_agent, referer, cookie_header
 
