@@ -101,19 +101,15 @@ class BahamutHandler(StreamHandler):
 
     def get_filename(self, url: str, task) -> str:
         """
-        仅用 requests 抓标题，不启用 Playwright。逻辑：
-        1. 先从 URL query 解析 sn 作为 fallback 名称。
-        2. 用 requests GET 页面 HTML，用 BeautifulSoup 解析：
-           a. 优先尝试抓取 class="anime_name" 下的 <h1>（Selector: ".anime_name > h1"）。
-           b. 如果找不到，再尝试抓 <meta property="og:title"> 的 content。
-           c. 如果还没找到，就抓 <title> 标签文本。
-        3. 如果以上都无法获取到标题，就用 sn 作为名称。
-        4. 对获取到的名称做文件名安全化（将 \ / : * ? " < > | 等字符替换成 "_"，并以 "_" 替换连续空白）。
-        5. 最后在名称末尾加上 ".mp4" 并返回。
+        1. 優先使用 Playwright 到页面执行 JS，等待并抓取 class="anime_name" 底下的 <h1> 文本。
+           Selector: ".anime_name > h1"
+        2. 如果拿不到，再退而求其次使用 <meta property="og:title"> 或 <title>。
+        3. 如果两者都失败，使用 URL query 的 sn 值作为 fallback 名称。
+        4. 对获取到的名称做文件名合法化，最后附上 ".mp4" 返回。
         """
         print(f"[DEBUG] get_filename() called with url = {url}")
 
-        # 1. 从 URL 中解析 sn 作为 fallback
+        # 先从 URL 中解析出 sn 作为 fallback
         parsed_url = urlparse(url)
         qs = urllib.parse.parse_qs(parsed_url.query)
         sn_values = qs.get("sn", [])
@@ -123,102 +119,182 @@ class BahamutHandler(StreamHandler):
             fallback_name = "anime_video"
         print(f"[DEBUG] get_filename(): 解析到 sn (fallback) = {fallback_name}")
 
+        # 异步函数：用 Playwright 抓取 .anime_name > h1 文本
+        async def _fetch_dynamic_title():
+            title_text = None
+            print("[DEBUG] _fetch_dynamic_title(): 使用 Playwright 抓取 .anime_name > h1")
+
+            playwright = None
+            browser = None
+            try:
+                playwright = await async_playwright().start()
+                browser = await playwright.firefox.launch(headless=True)
+                page = await browser.new_page()
+                await page.goto(url, wait_until="load")
+
+                selector = ".anime_name > h1"
+                print(f"[DEBUG] _fetch_dynamic_title(): 等待元素出现：{selector}")
+                await page.wait_for_selector(selector, timeout=10000)
+                title_text = await page.evaluate(
+                    f"() => document.querySelector('{selector}').textContent.trim()"
+                )
+                print(f"[DEBUG] _fetch_dynamic_title(): 取得动态标题 = {title_text}")
+            except Exception as e:
+                print(f"[WARNING] _fetch_dynamic_title(): 无法通过 Playwright 抓取标题: {e}")
+                title_text = None
+            finally:
+                if browser:
+                    try:
+                        await browser.close()
+                        print("[DEBUG] _fetch_dynamic_title(): 已关闭浏览器")
+                    except Exception as e:
+                        print(f"[WARNING] _fetch_dynamic_title(): 关闭浏览器时异常: {e}")
+                if playwright:
+                    try:
+                        await playwright.stop()
+                        print("[DEBUG] _fetch_dynamic_title(): 已停止 Playwright")
+                    except Exception as e:
+                        print(f"[WARNING] _fetch_dynamic_title(): 停止 Playwright 时异常: {e}")
+            return title_text
+
+        # —— 在同步函数里调用上面的 async 来获取动态标题 —— 
         title = None
-
-        # 2. 用 requests 获取页面 HTML
+        print("[DEBUG] get_filename(): 尝试用 Playwright 获取 .anime_name > h1")
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            resp = requests.get(url, timeout=15)
-            resp.raise_for_status()
-            html = resp.text
-            print(f"[DEBUG] get_filename(): 成功取得 HTML (长度 {len(html)} 字符)")
+            title = loop.run_until_complete(_fetch_dynamic_title())
+            print(f"[DEBUG] get_filename(): Playwright 返回 title = {title}")
         except Exception as e:
-            print(f"[WARNING] get_filename(): 无法获取页面 HTML: {e}")
-            # 直接使用 fallback
-            safe_fallback = re.sub(r'[\\\/\:\*\?\"<>\|]', "_", fallback_name)
-            filename = f"{safe_fallback}.mp4"
-            print(f"[DEBUG] get_filename(): 返回 fallback filename = {filename}")
-            return filename
+            print(f"[ERROR] get_filename(): _fetch_dynamic_title() 异常: {e}")
+            title = None
+        finally:
+            if not loop.is_closed():
+                loop.close()
+            print("[DEBUG] get_filename(): Playwright 相关 event loop 已关闭。")
 
-        soup = BeautifulSoup(html, "html.parser")
+        # 2. 如果 playright 没拿到，再用 requests+BS 抓 <meta> 或 <title>
+        if not title:
+            print("[DEBUG] get_filename(): 开始用 requests+BS 抓取 <meta og:title> 或 <title>")
+            try:
+                resp = requests.get(url, timeout=15)
+                resp.raise_for_status()
+                html = resp.text
+                print(f"[DEBUG] get_filename(): 获取 HTML 长度 {len(html)}")
 
-        # 2.a 优先抓取 <div class="anime_name"><h1>…</h1></div>
-        h1 = soup.select_one(".anime_name > h1")
-        if h1 and h1.text:
-            title = h1.text.strip()
-            print(f"[DEBUG] get_filename(): 从 .anime_name > h1 获取到标题: {title}")
-        else:
-            # 2.b 再尝试 <meta property="og:title">
-            og = soup.find("meta", property="og:title")
-            if og and og.get("content"):
-                title = og["content"].strip()
-                print(f"[DEBUG] get_filename(): 从 <meta property='og:title'> 获取到标题: {title}")
-            else:
-                # 2.c 再尝试 <title>
-                title_tag = soup.find("title")
-                if title_tag and title_tag.text:
-                    title = title_tag.text.strip()
-                    print(f"[DEBUG] get_filename(): 从 <title> 获取到文本: {title}")
+                soup = BeautifulSoup(html, "html.parser")
+                og = soup.find("meta", property="og:title")
+                if og and og.get("content"):
+                    title = og["content"].strip()
+                    print(f"[DEBUG] get_filename(): 从 <meta og:title> 获取到标题: {title}")
                 else:
-                    print("[WARNING] get_filename(): 未找到 .anime_name > h1、<meta og:title> 或 <title>，将使用 sn 作为标题。")
-                    title = None
+                    title_tag = soup.find("title")
+                    if title_tag and title_tag.text:
+                        title = title_tag.text.strip()
+                        print(f"[DEBUG] get_filename(): 从 <title> 获取到文字: {title}")
+                    else:
+                        print("[WARNING] get_filename(): 未找到 <meta og:title> 或 <title>")
+                        title = None
+            except Exception as e:
+                print(f"[WARNING] get_filename(): 请求页面解析时异常: {e}")
+                title = None
 
-        # 3. 如果仍然没有标题，使用 sn
+        # 3. 如果仍然没有，就使用 sn 作为标题
         if not title:
             title = fallback_name
             print(f"[DEBUG] get_filename(): 使用 fallback sn 作为标题: {title}")
 
-        # 4. 文件名安全化：将 \ / : * ? \" < > | 全部替换成 "_"，再将连续空白替换为 "_"
+        # 4. 做文件名合法化
         safe_title = re.sub(r'[\\\/\:\*\?\"<>\|]', "_", title)
         safe_title = re.sub(r"\s+", "_", safe_title.strip())
-
-        # 5. 最终返回
         filename = f"{safe_title}.mp4"
         print(f"[DEBUG] get_filename(): 最终生成 filename = {filename}")
+
         return filename
 
 
     def parse_urls(self, start_url: str) -> list[str]:
         """
-        解析 Ani.Gamer 動畫頁面中，「所有集數」的 URL。
-        1. 發送 HTTP GET 取得 start_url 的 HTML。
-        2. 用 BeautifulSoup 解析 <section class="season"> 中所有 <a> 標籤。
-        3. 將 href（通常形如 "?sn=XXXXX"）轉成完整 URL，並依序回傳列表。
+        使用 Playwright 解析 Ani.Gamer 動畫頁面中「所有集數」的完整 URL 列表：
+        1. 啟動 Playwright，導航到 start_url。
+        2. 等待 <section class="season"> 底下的所有 <a> 元素載入完成。
+        3. 讀取每個 <a> 的 href 屬性（通常形如 "?sn=XXXXX"），並將其轉成完整 URL。
+        4. 關閉瀏覽器，回傳完整 URL 清單。
         """
         print(f"[DEBUG] parse_urls() called with start_url = {start_url}")
 
+        async def _parse_urls_async():
+            print("[DEBUG] _parse_urls_async(): 開始執行，啟動 Playwright...")
+            await self.init_browser()
+            page: Page = self.page
+
+            try:
+                print(f"[DEBUG] _parse_urls_async(): 導航到 {start_url}")
+                await page.goto(start_url, wait_until="load")
+                print("[DEBUG] _parse_urls_async(): 網頁載入完成。")
+            except Exception as e:
+                print(f"[ERROR] _parse_urls_async(): page.goto({start_url}) 失敗: {e}")
+                await self.close_browser()
+                return []
+
+            # 等待 season 區塊中至少有一個 <a> 出現
+            selector = "section.season a"
+            try:
+                print(f"[DEBUG] _parse_urls_async(): 等待 selector: '{selector}' 出現 (timeout=10s)")
+                await page.wait_for_selector(selector, timeout=10000)
+                print("[DEBUG] _parse_urls_async(): 已找到至少一個 <a> 元素。")
+            except Exception as e:
+                print(f"[WARNING] _parse_urls_async(): 等待 selector '{selector}' 超時或發生錯誤: {e}")
+                # 即使等待失敗，也繼續嘗試抓取所有可能已經渲染的 <a>
+            
+            # 擷取所有 season 中的 <a> 元素
+            try:
+                anchors = await page.query_selector_all(selector)
+                print(f"[DEBUG] _parse_urls_async(): 找到 {len(anchors)} 個 <a> 元素。")
+            except Exception as e:
+                print(f"[ERROR] _parse_urls_async(): query_selector_all 發生錯誤: {e}")
+                await self.close_browser()
+                return []
+
+            urls = []
+            for idx, a in enumerate(anchors):
+                try:
+                    href = await a.get_attribute("href")
+                    if not href:
+                        print(f"[WARNING] _parse_urls_async(): 第 {idx} 個 <a> 沒有 href 屬性，跳過。")
+                        continue
+                    href = href.strip()
+                    full_url = urllib.parse.urljoin(start_url, href)
+                    print(f"[DEBUG] _parse_urls_async(): 第 {idx} 個 href = '{href}', 對應 full_url = '{full_url}'")
+                    urls.append(full_url)
+                except Exception as e:
+                    print(f"[WARNING] _parse_urls_async(): 讀取第 {idx} 個 <a> href 時出錯: {e}")
+                    continue
+
+            print(f"[DEBUG] _parse_urls_async(): 總共組出 {len(urls)} 個 URL。")
+            # 關閉 Playwright
+            print("[DEBUG] _parse_urls_async(): 開始關閉 Playwright 瀏覽器...")
+            await self.close_browser()
+            print("[DEBUG] _parse_urls_async(): Playwright 已關閉。")
+
+            return urls
+
+        # 同步部分：在新 event loop 裡呼叫 _parse_urls_async()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            resp = requests.get(start_url, timeout=15)
-            resp.raise_for_status()
-            html = resp.text
-            print(f"[DEBUG] parse_urls(): 成功取得 HTML (長度 {len(html)} 字符)")
+            urls = loop.run_until_complete(_parse_urls_async())
+            print(f"[DEBUG] parse_urls(): _parse_urls_async() 回傳 {len(urls)} 個 URL。")
         except Exception as e:
-            print(f"[ERROR] parse_urls(): 無法取得頁面 HTML: {e}")
-            return []
+            print(f"[ERROR] parse_urls(): 呼叫 _parse_urls_async() 發生例外: {e}")
+            urls = []
+        finally:
+            if not loop.is_closed():
+                loop.close()
+            print("[DEBUG] parse_urls(): event loop 已關閉。")
 
-        soup = BeautifulSoup(html, "html.parser")
-
-        # 找到 <section class="season">
-        season_section = soup.find("section", class_="season")
-        if not season_section:
-            print("[WARNING] parse_urls(): 未找到 <section class='season'>，回傳空列表。")
-            return []
-
-        # 在 season_section 底下抓所有 <a>，並建構完整 URL
-        anchors = season_section.find_all("a", href=True)
-        if not anchors:
-            print("[WARNING] parse_urls(): <section class='season'> 中未找到任何 <a>，回傳空列表。")
-            return []
-
-        urls = []
-        for a in anchors:
-            href = a.get("href").strip()
-            # 若 href 以 '?' 開頭 (如 "?sn=40262")，用 urljoin 加上 base
-            full_url = urllib.parse.urljoin(start_url, href)
-            print(f"[DEBUG] parse_urls(): 抓到 href = {href}，對應 full_url = {full_url}")
-            urls.append(full_url)
-
-        print(f"[DEBUG] parse_urls(): 最終回傳 {len(urls)} 個 URL → {urls}")
         return urls
+
 
 
     def get_new_url(self, urls: str, records: set[str]):
