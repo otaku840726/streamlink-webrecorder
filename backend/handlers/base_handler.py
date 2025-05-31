@@ -33,7 +33,7 @@ class BrowserManager:
             return cls._browser
 
         cls._playwright = await async_playwright().start()
-        cls._browser = await cls._playwright.chromium.launch_persistent_context(
+        cls._browser = await cls._playwright.firefox.launch_persistent_context(
             cls._user_data_dir,
             headless=headless,
             args=["--no-sandbox", "--disable-dev-shm-usage"],
