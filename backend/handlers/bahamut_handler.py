@@ -23,17 +23,18 @@ class BahamutHandler(StreamHandler):
         super().__init__()
         print("[DEBUG] BahamutHandler.__init__(): 初始化 Handler")
         self.page = None
+        self.context = None
 
-    async def init_browser(self):
-        if not self.page:
-            self.page = await BrowserManager.new_page()
-            print("[DEBUG] 已開啟新 page")
+    async def init_browser(self, target_url: str):
+        self.page, self.context = await BrowserManager.new_page(target_url)
 
     async def close_browser(self):
-        if self.page:
+        if self.page and self.context:
+            await BrowserManager.save_session(self.context, self.page, self.page.url)
             await self.page.close()
+            await self.context.close()
             self.page = None
-            print("[DEBUG] 已關閉 page")
+            self.context = None
 
     def get_ext(self):
         return "ts"
@@ -164,7 +165,7 @@ class BahamutHandler(StreamHandler):
 
         async def _parse_urls_async():
             print("[DEBUG] _parse_urls_async(): 開始執行，啟動 Playwright...")
-            await self.init_browser()
+            await self.init_browser(start_url)
             page: Page = self.page
 
             try:
@@ -280,7 +281,7 @@ class BahamutHandler(StreamHandler):
 
             # --- 2. 启动 Playwright 并打开页面 ---
             print("[DEBUG] _grab_m3u8_and_headers(): 调用 init_browser() 启动 Playwright ...")
-            await self.init_browser()
+            await self.init_browser(url)
             page: Page = self.page
             print("[DEBUG] _grab_m3u8_and_headers(): Playwright 启动完成。")
 

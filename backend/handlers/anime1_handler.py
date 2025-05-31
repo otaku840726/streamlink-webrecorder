@@ -25,17 +25,18 @@ class Anime1Handler(StreamHandler):
         super().__init__()
         print("[DEBUG] Anime1Handler.__init__(): 初始化 Handler")
         self.page = None
+        self.context = None
 
-    async def init_browser(self):
-        if not self.page:
-            self.page = await BrowserManager.new_page()
-            print("[DEBUG] 已開啟新 page")
+    async def init_browser(self, target_url: str):
+        self.page, self.context = await BrowserManager.new_page(target_url)
 
     async def close_browser(self):
-        if self.page:
+        if self.page and self.context:
+            await BrowserManager.save_session(self.context, self.page, self.page.url)
             await self.page.close()
+            await self.context.close()
             self.page = None
-            print("[DEBUG] 已關閉 page")
+            self.context = None
 
     async def get_episode_urls_async(self, category_url: str) -> list[str]:
         print(f"[DEBUG] get_episode_urls_async() called with category_url = {category_url}")
@@ -43,7 +44,7 @@ class Anime1Handler(StreamHandler):
         next_page = category_url
         
         # 初始化瀏覽器
-        await self.init_browser()
+        await self.init_browser(next_page)
         try:
             while next_page:
                 print(f"[DEBUG] 造訪下一頁: {next_page}")
@@ -189,7 +190,7 @@ class Anime1Handler(StreamHandler):
         
     async def get_video_src_async(self, episode_url: str) -> str:
         print(f"[DEBUG] get_video_src_async() called with episode_url = {episode_url}")
-        await self.init_browser()
+        await self.init_browser(episode_url)
         try:
             print(f"[DEBUG] 將前往影片頁面: {episode_url}")
             await self.page.goto(episode_url, wait_until="load")
@@ -232,7 +233,7 @@ class Anime1Handler(StreamHandler):
 
             # 1. 啟動瀏覽器
             print("[DEBUG] 呼叫 init_browser() ...")
-            await self.init_browser()
+            await self.init_browser(url)
             page: Page = self.page
             print("[DEBUG] init_browser() 完成。")
 

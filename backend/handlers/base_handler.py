@@ -3,8 +3,9 @@ from abc import ABC, abstractmethod
 import multiprocessing
 from subprocess import PIPE
 import subprocess
-from playwright.async_api import async_playwright, BrowserContext
-import asyncio
+import os, json, asyncio
+from urllib.parse import urlparse
+from playwright.async_api import async_playwright, Page, Browser, BrowserContext
         
 _registry = []
 
@@ -17,49 +18,73 @@ def register_handler(pattern):
 
 class BrowserManager:
     _playwright = None
-    _context: BrowserContext = None
+    _browser: Browser = None
     _lock = asyncio.Lock()
-    _page_lock = asyncio.Lock()  # 新增這個鎖
-    _init_task = None
 
     @classmethod
-    async def init(cls, user_data_dir="./playwright", headless=False):
-        print("[BrowserManager] init() called")
+    async def init(cls, headless=True):
         async with cls._lock:
-            if cls._context:
-                return cls._context
-            if cls._init_task:
-                return await cls._init_task
-
-            async def _do_init():
+            if cls._playwright is None:
                 cls._playwright = await async_playwright().start()
-                cls._context = await cls._playwright.chromium.launch_persistent_context(
-                    user_data_dir=user_data_dir,
-                    headless=headless,
-                    accept_downloads=True,
-                    viewport={"width": 1280, "height": 800},
-                )
-                print("[BrowserManager] Persistent context 啟動完成。")
-                return cls._context
-
-            cls._init_task = asyncio.create_task(_do_init())
-            return await cls._init_task
+            if cls._browser is None:
+                cls._browser = await cls._playwright.chromium.launch(headless=headless)
+            return cls._browser
 
     @classmethod
-    async def new_page(cls):
-        context = await cls.init()
-        async with cls._page_lock:
-            print("[BrowserManager] 建立新 page 中...")
-            return await context.new_page()
-            
+    async def new_page(cls, target_url: str):
+        browser = await cls.init()
+        context = await browser.new_context()
+        await cls._restore_cookies(context, target_url)
+        page = await context.new_page()
+        await page.goto(target_url)
+        await cls._restore_local_storage(page, target_url)
+        return page, context
+
+    @classmethod
+    async def save_session(cls, context: BrowserContext, page: Page, target_url: str):
+        parsed = urlparse(target_url)
+        domain = parsed.netloc.replace(":", "_")
+        base_dir = f"./playwright/{domain}"
+        os.makedirs(base_dir, exist_ok=True)
+
+        # Save cookies
+        cookies = await context.cookies()
+        with open(f"{base_dir}/cookies.json", "w", encoding="utf-8") as f:
+            json.dump(cookies, f)
+
+        # Save localStorage
+        local_data = await page.evaluate("() => Object.fromEntries(Object.entries(localStorage))")
+        with open(f"{base_dir}/localstorage.json", "w", encoding="utf-8") as f:
+            json.dump(local_data, f)
+
+    @classmethod
+    async def _restore_cookies(cls, context: BrowserContext, target_url: str):
+        parsed = urlparse(target_url)
+        path = f"./playwright/{parsed.netloc}/cookies.json"
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                cookies = json.load(f)
+            await context.add_cookies(cookies)
+
+    @classmethod
+    async def _restore_local_storage(cls, page: Page, target_url: str):
+        parsed = urlparse(target_url)
+        path = f"./playwright/{parsed.netloc}/localstorage.json"
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                local_data = json.load(f)
+            for key, value in local_data.items():
+                await page.evaluate("(k, v) => localStorage.setItem(k, v)", key, value)
+
     @classmethod
     async def close(cls):
-        if cls._context:
-            await cls._context.close()
-            cls._context = None
+        if cls._browser:
+            await cls._browser.close()
+            cls._browser = None
         if cls._playwright:
             await cls._playwright.stop()
             cls._playwright = None
+
 
 class StreamHandler(ABC):
     @abstractmethod
