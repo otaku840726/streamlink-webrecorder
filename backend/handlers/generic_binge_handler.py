@@ -230,6 +230,16 @@ class GenericBingeHandler(StreamHandler):
             await page.goto(url, wait_until="load")
             print("[DEBUG] 頁面載入完成。")
 
+            # 3. 點擊播放按鈕，讓 <video> 元素產生並載入 src
+            try:
+                print("[DEBUG] 嘗試點擊播放按鈕 (.vjs-big-play-centered) ...")
+                await page.click(".vjs-big-play-centered")
+                print("[DEBUG] 播放按鈕已點擊。")
+            except Exception as e:
+                print(f"[ERROR] 點擊播放按鈕失敗: {e}")
+                await self.close_browser()
+                raise RuntimeError("無法點擊播放按鈕，無法載入 <video> 元素") from e
+
             # 3. 等待 <video> 出現並且有 src 屬性
             try:
                 print("[DEBUG] 等待 <video> 並且它有 src 屬性 (timeout=10秒)...")
