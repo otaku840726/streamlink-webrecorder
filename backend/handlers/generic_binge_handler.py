@@ -289,101 +289,84 @@ class GenericBingeHandler(StreamHandler):
             await page.goto(actual_mp4_url, wait_until="load")
             print("[DEBUG] 頁面載入完成。")
 
-            # 5. 嘗試找到「下載按鈕」的可能 selector
-            #    這邊舉例用中文「下載」或英文「Download」做查詢，你可以根據實際 HTML 再微調
-            download_selectors = [
-                'a:has-text("下載")',        # 連結文字為「下載」
-                'a:has-text("Download")',    # 連結文字為 "Download"
-                'button:has-text("下載")',
-                'button:has-text("Download")',
-                'a[download]',               # 直接找 <a download>
-                'video[controlslist] ~ a',   # 假設下載按鈕緊接在 video 之後
-            ]
-
-            button = None
-            for sel in download_selectors:
-                try:
-                    print(f"[DEBUG] 嘗試尋找下載按鈕 selector: '{sel}'")
-                    button =  await page.wait_for_selector(sel, timeout=10000)
-                    if button:
-                        print(f"[DEBUG] 找到下載按鈕 ({sel})！")
-                        break
-                    else:
-                        print(f"[DEBUG] 尚未找到: {sel}")
-                except Exception as e:
-                    print(f"[DEBUG] query_selector(\"{sel}\") 出現例外: {e}")
-
-            if not button:
-                print("[ERROR] 未能找到任何下載按鈕，請檢查播放器的 HTML 結構。")
-                await self.close_browser()
-                raise RuntimeError("找不到下載按鈕")
-
-            # 6. 在點擊「下載按鈕」之前，註冊 download 事件
-            print("[DEBUG] 註冊 page.expect_download() …")
-            # 這邊使用 expect_download，能夠確保 Playwright 等到 download 開始
+            # 4. 从 page 中拿出 User-Agent 和 Referer，方便后续用 requests 一次性下载
             try:
-                async with page.expect_download() as download_info:
-                    print("[DEBUG] 正在點擊下載按鈕…")
-                    await button.click()
-                download: Download = await download_info.value
-                print("[DEBUG] 已經攔截到 Download 事件！")
+                user_agent = await page.evaluate("() => navigator.userAgent")
+                referer = page.url
+                print(f"[DEBUG] 获取到 User-Agent='{user_agent}'，Referer='{referer}'")
             except Exception as e:
-                print(f"[ERROR] 點擊下載按鈕後未收到 Download 事件: {e}")
-                await self.close_browser()
-                raise RuntimeError("未能攔截到下載事件 (expect_download)") from e
+                print(f"[WARNING] 无法获取 User-Agent 或 Referer: {e}")
+                # 如果拿不到，就留空
+                user_agent = None
+                referer = None
 
-            # 7. Download 物件拿到之後，確認取得的下載路徑與預設檔名
-            try:
-                # 如果你要看伺服器給的預設檔名，可以用 download.suggested_filename()
-                suggested_name = download.suggested_filename
-                print(f"[DEBUG] suggested filename = {suggested_name}")
-
-                # 如果你要知道 Playwright 把檔案先下載到哪（暫存路徑）
-                temp_path = download.path()
-                print(f"[DEBUG] 暫存檔案路徑 = {temp_path}")
-
-                # 把暫存檔案另存成你指定的 out_file
-                print(f"[DEBUG] 將下載檔另存到: {out_file}")
-                Path(os.path.dirname(out_file)).mkdir(parents=True, exist_ok=True)
-                await download.save_as(out_file)
-                print(f"[DEBUG] 檔案已儲存到: {out_file}")
-
-                # 確認檔案大小
-                final_size = os.path.getsize(out_file)
-                print(f"[DEBUG] 下載完成，檔案大小: {final_size} bytes")
-            except Exception as e:
-                print(f"[ERROR] Download.save_as() 或檔案搬移過程失敗: {e}")
-                await self.close_browser()
-                raise
-
-            # 8. 所有流程結束，關閉瀏覽器
-            print("[DEBUG] 所有下載流程完成，準備關閉瀏覽器。")
+            # **注意：此时不要立即 close_browser()，保留 page/context 以确保 Cookie 还在**
+            print("[DEBUG] 保留浏览器 Context，准备返回 URL 和 Headers 给 Python 部分。")
+            # 先关掉 Playwright 但保留拿到的字符串
             await self.close_browser()
-            print("[DEBUG] 瀏覽器關閉完成。")
+            print("[DEBUG] 浏览器 Context 已关闭。")
 
-            # 9. 回傳實際影片 URL 與檔案大小
-            return actual_mp4_url, final_size
+            return actual_mp4_url, user_agent, referer
 
-        # —— 同步部分：啟動 event loop 去執行上述 async 函式 —— 
-        print("[DEBUG] build_method(): 建立並啟動 event loop 下載影片。")
+        # —— 在同步代码里启动 event loop，调用上面的 async func —— 
+        print("[DEBUG] build_method(): 启动 event loop 取得 video URL + Headers …")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            actual_url, size_bytes = loop.run_until_complete(_download_via_player_button())
-            print(f"[DEBUG] 下載任務完成，actual_url = {actual_url}，size_bytes = {size_bytes}")
+            actual_url, ua, ref = loop.run_until_complete(_fetch_video_and_download())
+            print(f"[DEBUG] _fetch_video_and_download() 完成，actual_url='{actual_url}'")
         except Exception as e:
-            print(f"[ERROR] build_method(): _download_via_player_button() 拋出例外: {e}")
-        finally:
-            print("[DEBUG] build_method(): event loop 關閉。")
+            print(f"[ERROR] build_method(): _fetch_video_and_download() 抛出异常: {e}")
             loop.close()
+            print("[DEBUG] build_method(): event loop 已关闭。")
+            return
+        finally:
+            if not loop.is_closed():
+                loop.close()
+            print("[DEBUG] build_method(): event loop 已关闭。")
 
-        # 最後在同步層印出最終結果
-        if 'size_bytes' in locals() and size_bytes and size_bytes > 0:
-            filename = os.path.basename(out_file)
-            print(f"+ 已下載並儲存：{filename}（{size_bytes/1024/1024:.2f} MB）")
-            print(f"  來源 URL：{actual_url}")
-        else:
-            print("[DEBUG] 未下載任何檔案，請檢查上述錯誤日誌。")
+        # 5. Python 部分：直接用 requests.get() 下载整支 MP4
+        print(f"[DEBUG] Python 开始用 requests 下载 MP4 → '{out_file}'")
+        headers = {}
+        if ua:
+            headers["User-Agent"] = ua
+        if ref:
+            headers["Referer"] = ref
+
+        try:
+            # 直接一次性下载，不分块
+            resp = requests.get(actual_url, headers=headers, timeout=60, stream=True)
+        except Exception as e:
+            print(f"[ERROR] requests.get() 失败: {e}")
+            return
+
+        status = resp.status_code
+        print(f"[DEBUG] requests.get() 返回状态码: {status}")
+        if status != 200:
+            print(f"[ERROR] 服务器返回非 200: {status}，下载失败！")
+            return
+
+        # 6. 把内容写成文件
+        try:
+            Path(os.path.dirname(out_file)).mkdir(parents=True, exist_ok=True)
+            with open(out_file, "wb") as f:
+                # 如果 Content-Length 很大，也可以加上进度条，或者按 chunk 写入；这里只用 1MB chunk
+                total_written = 0
+                for chunk in resp.iter_content(chunk_size=1024*1024):
+                    if chunk:
+                        f.write(chunk)
+                        total_written += len(chunk)
+                        print(f"[DEBUG] 已下载 {total_written} bytes …")
+            final_size = os.path.getsize(out_file)
+            print(f"[DEBUG] 写入完成，本地文件大小: {final_size} bytes")
+        except Exception as e:
+            print(f"[ERROR] 写入本地文件时异常: {e}")
+            return
+
+        # 7. 最终结果
+        filename = os.path.basename(out_file)
+        print(f"+ 已下载并保存：{filename}（{final_size/1024/1024:.2f} MB）")
+        print(f"  来源 URL：{actual_url}")
 
     def __del__(self):
         print("[DEBUG] GenericBingeHandler.__del__()：析構方法被呼叫。")
