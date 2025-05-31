@@ -110,11 +110,6 @@ class BahamutHandler(StreamHandler):
         return episode_url
 
     def build_cmd(self, url: str, task, out_file: str) -> list[str]:
-        """不使用命令列模式"""
-        print(f"[DEBUG] build_cmd() called with url={url}, task={task}, out_file={out_file}")
-        return None
-
-    def build_method(self, url: str, task, out_file: str):
         """
         这版示范：
         1. 先从传入的 URL (e.g. https://ani.gamer.com.tw/animeVideo.php?sn=43389) 中
@@ -248,31 +243,15 @@ class BahamutHandler(StreamHandler):
             print(f"[DEBUG] build_method(): 加入 header_args => '--http-header {kv}'")
         print(f"[DEBUG] build_method(): 最终 header_args 列表 = {header_args}")
 
-        # --- 9. 确保输出文件夹存在 ---
-        print(f"[DEBUG] build_method(): 确保输出路径：{out_file}")
-        folder = os.path.dirname(out_file)
-        if folder and not os.path.isdir(folder):
-            print(f"[DEBUG] build_method(): 输出目录 {folder} 不存在，正在创建 ...")
-            os.makedirs(folder, exist_ok=True)
-            print(f"[DEBUG] build_method(): 输出目录 {folder} 已创建。")
-        else:
-            print(f"[DEBUG] build_method(): 输出目录 {folder} 已存在或为空。")
-
         # --- 10. 组装 Streamlink 命令 ---
         cmd = ["streamlink"] + header_args + [m3u8_url, "best", "-o", out_file]
-        print("[DEBUG] build_method(): 执行 Streamlink 以下载并合并 HLS (TS)，命令如下：")
-        print("  " + " \\\n  ".join(cmd))
+        print(f"[DEBUG] build_method(): 组装的 Streamlink 命令 = {cmd}")
+        return cmd
 
-        # --- 11. 调用 Streamlink 并检查返回值 ---
-        print("[DEBUG] build_method(): 调用 subprocess.run(cmd) ...")
-        proc = subprocess.run(cmd, capture_output=True, text=True)
-        if proc.returncode != 0:
-            print("[ERROR] build_method(): Streamlink stderr：")
-            print(proc.stderr)
-            print("[ERROR] build_method(): Streamlink 执行失败，请检查错误原因。")
-            return
-        print(f"[DEBUG] build_method(): Streamlink 执行成功，已生成 TS：{out_file}")
-        print(f"[OK] 下载完成，TS 输出路径：{out_file}")
+
+
+    def build_method(self, url: str, task, out_file: str):
+        return None
 
 
     def __del__(self):
