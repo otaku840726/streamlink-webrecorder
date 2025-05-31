@@ -291,11 +291,11 @@ class GenericBingeHandler(StreamHandler):
             print("[DEBUG] 頁面載入完成。")
 
             # 5. 從 BrowserContext 抓出該 video_url 對應的所有 cookie
-            parsed = urlparse(video_url)
+            parsed = urlparse(actual_mp4_url)
             video_domain = f"{parsed.scheme}://{parsed.netloc}"
             try:
                 # domain 必須與 video_url 相同（或更高層級）
-                cookies = await context.cookies(video_url)
+                cookies = await context.cookies(actual_mp4_url)
                 # cookies 會是 list of dict{"name", "value", "domain", …}
                 cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
                 print(f"[DEBUG] 取得 {len(cookies)} 個 cookies: {cookie_header}")
@@ -321,7 +321,7 @@ class GenericBingeHandler(StreamHandler):
             await playwright.stop()
             print("[DEBUG] Playwright 已關閉。")
 
-            return video_url, user_agent, referer, cookie_header
+            return actual_mp4_url, user_agent, referer, cookie_header
 
         # —— 同步部分：呼叫上面的 async func 得到 video_url + headers —— 
         print("[DEBUG] build_method(): 啟動 event loop 取得 video_url + headers …")
