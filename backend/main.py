@@ -414,7 +414,8 @@ def record_stream(task):
     # 產生統一 out_file
     u = handler.get_new_url(urls, recorded)
     nowstr = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_file = os.path.join(save_path, f"{task.name}_{nowstr}.ts")
+    ext = handler.get_ext()
+    out_file = os.path.join(save_path, f"{task.name}_{nowstr}.{ext}")
     proc = None
     conversion_triggered = False # 新增標誌，用於跟踪是否已觸發轉碼
     thumbnail_thread = None # 用於在錄製過程中生成縮圖的線程
@@ -438,7 +439,7 @@ def record_stream(task):
         if proc.returncode == 0:
             write_log(task.id, "end", f"SUCCESS: {out_file}")
             # --- 自動轉成 MP4 --- (統一使用 ts_to_mp4 函數)
-            if os.path.exists(out_file):
+            if os.path.exists(out_file) & out_file.endswith(".ts"):
                 # 標記已錄
                 recorded.add(u)
                 with open(meta_file, 'w', encoding='utf-8') as mf:

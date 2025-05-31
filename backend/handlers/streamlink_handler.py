@@ -3,6 +3,9 @@ from datetime import datetime
 from handlers.base_handler import StreamHandler
 
 class StreamlinkHandler(StreamHandler):
+    def get_ext(self):
+        return "ts"
+
     def parse_urls(self, start_url: str) -> list[str]:
         # Streamlink 模式不預先解析
         return []
