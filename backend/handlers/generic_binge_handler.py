@@ -183,9 +183,7 @@ class GenericBingeHandler(StreamHandler):
 
     def __del__(self):
         if self.browser:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             try:
-                loop.run_until_complete(self.close_browser())
-            finally:
-                loop.close()
+                asyncio.run(self.close_browser())
+            except Exception:
+                pass
