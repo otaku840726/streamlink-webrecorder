@@ -35,7 +35,7 @@ class GenericBingeHandler(StreamHandler):
             self.playwright = await async_playwright().start()
 
             # 取得 env 裡的 WebSocket endpoint
-            ws_endpoint = os.getenv("BROWSERLESS_WS_ENDPOINT") if os.getenv("BROWSERLESS_WS_ENDPOINT") else '127.0.0.1:3000'
+            ws_endpoint = os.getenv("BROWSERLESS_WS_ENDPOINT") if os.getenv("BROWSERLESS_WS_ENDPOINT") else 'ws://localhost:3005/playwright'
             if not ws_endpoint:
                 raise RuntimeError("環境變數 BROWSERLESS_WS_ENDPOINT 尚未設定")
 
