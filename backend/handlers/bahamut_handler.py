@@ -26,19 +26,16 @@ class BahamutHandler(StreamHandler):
         self.context = None
 
     async def init_browser(self):
-        self.context = await BrowserManager.init()
-        self.page = await self.context.new_page()
-        print("[DEBUG] 已建立新 page")
+        if not self.page:
+            context = await BrowserManager.init()
+            self.page = await context.new_page()
+            print("[DEBUG] 已開啟新 page")
 
     async def close_browser(self):
         if self.page:
-            try:
-                await self.page.close()
-                print("[DEBUG] 已關閉 page")
-            except Exception as e:
-                print(f"[WARNING] page.close() 異常: {e}")
-            finally:
-                self.page = None
+            await self.page.close()
+            self.page = None
+            print("[DEBUG] 已關閉 page")
 
     def get_ext(self):
         return "ts"
