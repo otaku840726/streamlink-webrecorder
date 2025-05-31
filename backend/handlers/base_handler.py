@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 import multiprocessing
 from subprocess import PIPE
 import subprocess
+from playwright.async_api import async_playwright
         
 _registry = []
 
@@ -11,6 +12,34 @@ def register_handler(pattern):
         _registry.append((re.compile(pattern), cls()))
         return cls
     return deco
+
+
+class BrowserManager:
+    _playwright = None
+    _context = None
+
+    @classmethod
+    async def init(cls, user_data_dir="./playwright_data", headless=True):
+        if cls._playwright is None:
+            cls._playwright = await async_playwright().start()
+
+        if cls._context is None:
+            cls._context = await cls._playwright.firefox.launch_persistent_context(
+                user_data_dir=user_data_dir,
+                headless=headless,
+                accept_downloads=True,
+                viewport={"width": 1280, "height": 800},
+            )
+        return cls._context
+
+    @classmethod
+    async def close(cls):
+        if cls._context:
+            await cls._context.close()
+            cls._context = None
+        if cls._playwright:
+            await cls._playwright.stop()
+            cls._playwright = None
 
 class StreamHandler(ABC):
     @abstractmethod

@@ -21,80 +21,23 @@ class BahamutHandler(StreamHandler):
     def __init__(self):
         super().__init__()
         print("[DEBUG] BahamutHandler.__init__(): 初始化 Handler")
-        self.playwright = None
-        self.browser = None
         self.page = None
+        self.context = None
 
     async def init_browser(self):
-        print("[DEBUG] init_browser() called.")
-        if not self.playwright:
-            print("[DEBUG] Playwright 尚未啟動，開始啟動 Playwright...")
-            self.playwright = await async_playwright().start()
-            print("[DEBUG] Playwright 已啟動。")
-
-            print("[DEBUG] 正在使用 Firefox 建立 persistent context...")
-            self.browser = await self.playwright.firefox.launch_persistent_context(
-                user_data_dir="./playwright",
-                headless=False,
-                accept_downloads=True,
-                viewport={"width": 1280, "height": 800},
-            )
-            print("[DEBUG] Firefox persistent context 建立完成。")
-
-            # 可選擇改用系統 firefox
-            # system_firefox = shutil.which("firefox")
-            # if not system_firefox:
-            #     raise RuntimeError("系統上找不到 firefox，可先安裝或指定正確路徑")
-            # self.browser = await self.playwright.firefox.launch(
-            #     headless=False,
-            #     executable_path=system_firefox
-            # )
-
-            print("[DEBUG] 建立新分頁 (new_page)...")
-            self.page = await self.browser.new_page()
-            print("[DEBUG] 分頁建立完成。")
-        else:
-            print("[DEBUG] Playwright 已在運行，跳過啟動步驟。")
+        self.context = await BrowserManager.init()
+        self.page = await self.context.new_page()
+        print("[DEBUG] 已建立新 page")
 
     async def close_browser(self):
-        """
-        關閉 browser 控制端，但不會關掉 browserless server（若有使用）
-        """
-        print("[DEBUG] close_browser() called.")
         if self.page:
-            print("[DEBUG] 嘗試關閉 page...")
             try:
                 await self.page.close()
-                print("[DEBUG] page 關閉成功。")
+                print("[DEBUG] 已關閉 page")
             except Exception as e:
-                print(f"[WARNING] page.close() 遇到例外: {e}")
-            self.page = None
-        else:
-            print("[DEBUG] 沒有 page 需要關閉。")
-
-        if self.browser:
-            print("[DEBUG] 嘗試關閉 browser context...")
-            try:
-                await self.browser.close()
-                print("[DEBUG] browser context 關閉成功。")
-            except Exception as e:
-                print(f"[WARNING] browser.close() 遇到例外: {e}")
-            self.browser = None
-        else:
-            print("[DEBUG] 沒有 browser context 需要關閉。")
-
-        if self.playwright:
-            print("[DEBUG] 嘗試停止 Playwright...")
-            try:
-                await self.playwright.stop()
-                print("[DEBUG] Playwright 停止成功。")
-            except Exception as e:
-                print(f"[WARNING] playwright.stop() 遇到例外: {e}")
-            self.playwright = None
-        else:
-            print("[DEBUG] Playwright 已經是 None，無須停止。")
-
-
+                print(f"[WARNING] page.close() 異常: {e}")
+            finally:
+                self.page = None
 
     def get_ext(self):
         return "ts"
@@ -456,13 +399,13 @@ class BahamutHandler(StreamHandler):
 
 
     def __del__(self):
-        print("[DEBUG] GenericBingeHandler.__del__()：析構方法被呼叫。")
-        if self.browser:
-            print("[DEBUG] __del__(): 偵測到 browser 尚未關閉，嘗試關閉...")
+        print("[DEBUG] Anime1Handler.__del__()：析構方法被呼叫。")
+        if self.page:
+            print("[DEBUG] __del__(): 偵測到 page 尚未關閉，嘗試關閉...")
             try:
                 asyncio.run(self.close_browser())
-                print("[DEBUG] __del__(): browser 關閉完成。")
+                print("[DEBUG] __del__(): page 關閉完成。")
             except Exception as e:
-                print(f"[WARNING] __del__(): 關閉 browser 時發生例外: {e}")
+                print(f"[WARNING] __del__(): 關閉 page 時發生例外: {e}")
         else:
-            print("[DEBUG] __del__(): browser 已經是 None。")
+            print("[DEBUG] __del__(): page 已經是 None。")

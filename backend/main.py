@@ -19,6 +19,7 @@ import psutil
 from PIL import Image
 import time
 from handlers.base_handler import get_handler
+from handlers.base_handler import BrowserManager
 
 
 HLS_DIR = "/hls"
@@ -42,6 +43,14 @@ app = FastAPI()
 scheduler = BackgroundScheduler()
 scheduler.start()
 
+@app.on_event("startup")
+async def startup_event():
+    await BrowserManager.init(user_data_dir="./playwright_data", headless=True)
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await BrowserManager.close()
+    
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
