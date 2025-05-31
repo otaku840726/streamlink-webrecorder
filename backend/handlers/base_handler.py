@@ -6,7 +6,9 @@ import subprocess
 import os, json, asyncio
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext
-        
+from pathlib import Path
+from typing import Optional
+
 _registry = []
 
 def register_handler(pattern):
@@ -16,91 +18,83 @@ def register_handler(pattern):
     return deco
 
 
+
 class BrowserManager:
     _playwright = None
-    _browser: Browser = None
-    _lock = asyncio.Lock()
+    _browser: Optional[Browser] = None
+    _context: Optional[BrowserContext] = None
+    _semaphore = asyncio.Semaphore(1)  # 控制同時最多 3 個任務打開 Page
+    _user_data_dir = "/tmp/playwright-user-data-dir"
+    _cookie_path = Path(_user_data_dir) / "cookies.json"
 
     @classmethod
-    async def init(cls, headless=True):
-        async with cls._lock:
-            if cls._playwright is None:
-                cls._playwright = await async_playwright().start()
-            if cls._browser is None:
-                cls._browser = await cls._playwright.firefox.launch(headless=headless, args=["--no-sandbox", "--disable-dev-shm-usage"])
+    async def init(cls, headless: bool = False) -> Browser:
+        if cls._browser:
             return cls._browser
 
+        cls._playwright = await async_playwright().start()
+        cls._browser = await cls._playwright.chromium.launch_persistent_context(
+            cls._user_data_dir,
+            headless=headless,
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
+        cls._context = cls._browser
+        print("[BrowserManager] Persistent context 啟動完成。")
+        return cls._browser
+
     @classmethod
-    async def new_page(cls, target_url: str):
+    async def new_page(cls, target_url: str) -> Page:
         print(f"[BrowserManager] 準備開啟 {target_url}...")
-        browser = await cls.init(headless=False)
-        print(f"[BrowserManager] init 完成")
-        context = await browser.new_context()
-        print(f"[BrowserManager] new_context 完成")
-        await cls._restore_cookies(context, target_url)
-        print(f"[BrowserManager] restore_cookies 完成")
-        page = await context.new_page()
-        print(f"[BrowserManager] new_page 完成")
+        await cls.init()
 
-
-        try:
-            await page.goto(target_url, timeout=30000)  # 明確指定 timeout 30 秒
-            print("[BrowserManager] page.goto 完成")
-        except Exception as e:
-            print(f"[BrowserManager] page.goto({target_url}) 發生例外：{type(e).__name__}: {e}")
-
-        try:
-            await cls._restore_local_storage(page, target_url)
-            print("[BrowserManager] localStorage 還原完成")
-        except Exception as e:
-            print(f"[BrowserManager] 還原 localStorage 發生例外：{type(e).__name__}: {e}")
-
-        return page, context
-
-    @classmethod
-    async def save_session(cls, context: BrowserContext, page: Page, target_url: str):
-        parsed = urlparse(target_url)
-        domain = parsed.netloc.replace(":", "_")
-        base_dir = f"./playwright/{domain}"
-        os.makedirs(base_dir, exist_ok=True)
-
-        # Save cookies
-        cookies = await context.cookies()
-        with open(f"{base_dir}/cookies.json", "w", encoding="utf-8") as f:
-            json.dump(cookies, f)
-
-        # Save localStorage
-        local_data = await page.evaluate("() => Object.fromEntries(Object.entries(localStorage))")
-        with open(f"{base_dir}/localstorage.json", "w", encoding="utf-8") as f:
-            json.dump(local_data, f)
+        async with cls._semaphore:  # 控制併發
+            page = await cls._context.new_page()
+            print(f"[BrowserManager] new_page 完成，開始導向 {target_url}")
+            try:
+                await cls._restore_cookies(cls._context, target_url)
+                await page.goto(target_url, timeout=15000, wait_until="domcontentloaded")
+                print(f"[BrowserManager] page.goto 完成: {target_url}")
+            except Exception as e:
+                print(f"[BrowserManager] page.goto 發生錯誤: {e}")
+                await page.close()
+                raise
+            return page
 
     @classmethod
     async def _restore_cookies(cls, context: BrowserContext, target_url: str):
-        parsed = urlparse(target_url)
-        path = f"./playwright/{parsed.netloc}/cookies.json"
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                cookies = json.load(f)
-            await context.add_cookies(cookies)
+        if cls._cookie_path.exists():
+            try:
+                with open(cls._cookie_path, "r") as f:
+                    cookies = json.load(f)
+                    await context.add_cookies(cookies)
+                    print("[BrowserManager] Cookies 還原完成")
+            except Exception as e:
+                print(f"[BrowserManager] 還原 cookies 失敗: {e}")
 
     @classmethod
-    async def _restore_local_storage(cls, page: Page, target_url: str):
-        parsed = urlparse(target_url)
-        path = f"./playwright/{parsed.netloc}/localstorage.json"
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                local_data = json.load(f)
-            for key, value in local_data.items():
-                await page.evaluate("(k, v) => localStorage.setItem(k, v)", key, value)
+    async def _save_cookies(cls):
+        if cls._context:
+            try:
+                cookies = await cls._context.cookies()
+                with open(cls._cookie_path, "w") as f:
+                    json.dump(cookies, f)
+                    print("[BrowserManager] Cookies 已儲存")
+            except Exception as e:
+                print(f"[BrowserManager] 儲存 cookies 失敗: {e}")
 
     @classmethod
     async def close(cls):
+        await cls._save_cookies()
         if cls._browser:
             await cls._browser.close()
             cls._browser = None
         if cls._playwright:
             await cls._playwright.stop()
             cls._playwright = None
+        print("[BrowserManager] 瀏覽器已關閉")
+
+    def __del__(self):
+        print("[BrowserManager] __del__() 被觸發，請手動確保呼叫 close()")
 
 
 class StreamHandler(ABC):
