@@ -12,6 +12,7 @@ import multiprocessing
 from subprocess import PIPE
 import time
 import shutil
+from pathlib import Path
 from urllib.parse import urlparse
 
 class GenericBingeHandler(StreamHandler):
