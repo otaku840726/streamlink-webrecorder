@@ -13,9 +13,9 @@ apt-get update && apt-get install -y \
 
 python3 -m venv /venv
 export PATH="/venv/bin:$PATH"
-pip install --upgrade pip
-pip install -r requirements.txt
-pip install streamlink
+pip install --upgrade pip  --break-system-packages
+pip install -r requirements.txt  --break-system-packages
+pip install streamlink  --break-system-packages
 
 playwright install
 # 安装系统依赖
