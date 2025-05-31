@@ -108,7 +108,7 @@ class BahamutHandler(StreamHandler):
 
     def get_final_url(self, episode_url: str):
         return episode_url
-           
+
     def build_cmd(self, url: str, task, out_file: str) -> list[str]:
         """不使用命令列模式"""
         print(f"[DEBUG] build_cmd() called with url={url}, task={task}, out_file={out_file}")
@@ -116,113 +116,163 @@ class BahamutHandler(StreamHandler):
 
     def build_method(self, url: str, task, out_file: str):
         """
-        這個版本示範：
-        1. 用 Playwright 點擊「同意」(id="adult")，讓廣告開始播放
-        2. 等待最多 40 秒，監聽所有 response，找出第 一 個 .m3u8 請求，
-           並將那次 request 的 headers 全部讀出
-        3. 關閉瀏覽器
-        4. 將 headers 轉成 Streamlink 所需的 --http-header 格式
-        5. 呼叫 Streamlink，下載並合併成 out_file (ts)
+        这版示范：
+        1. 先从传入的 URL (e.g. https://ani.gamer.com.tw/animeVideo.php?sn=43389) 中
+           解析出查询参数 sn 的值 (如“43389”)。
+        2. 用 Playwright 点击「同意」(id="adult")，让广告开始播放。
+        3. 等待最多 40 秒，监听所有响应，只捕获同时满足：
+           - URL 中包含 “.m3u8”
+           - URL 中包含解析到的 sn 值 (e.g. “43389”)
+           并将那次请求的 headers 读出。
+        4. 关闭浏览器。
+        5. 将 headers 转成 Streamlink 要求的 `--http-header Key=Value` 格式。
+        6. 调用 Streamlink，下载并合并为 `out_file` (.ts)。
         """
 
         async def _grab_m3u8_and_headers():
-            # 1. 啟動 Playwright
+            print("[DEBUG] _grab_m3u8_and_headers(): 开始执行。")
+
+            # --- 1. 从传入 URL 解析出 sn 值 ---
+            print(f"[DEBUG] _grab_m3u8_and_headers(): 传入的影片页面 URL = {url}")
+            parsed_page = urllib.parse.urlparse(url)
+            qs = urllib.parse.parse_qs(parsed_page.query)
+            sn_values = qs.get("sn", [])
+            if not sn_values:
+                await self.close_browser()
+                raise RuntimeError("[ERROR] _grab_m3u8_and_headers(): 无法从 URL 中解析出 sn 参数，请确认 URL 格式。")
+            sn = sn_values[0]
+            print(f"[DEBUG] _grab_m3u8_and_headers(): 解析到 sn = {sn}")
+
+            # --- 2. 启动 Playwright 并打开页面 ---
+            print("[DEBUG] _grab_m3u8_and_headers(): 调用 init_browser() 启动 Playwright ...")
             await self.init_browser()
             page: Page = self.page
+            print("[DEBUG] _grab_m3u8_and_headers(): Playwright 启动完成。")
 
-            # 2. 前往影片頁面
+            print(f"[DEBUG] _grab_m3u8_and_headers(): 导航到影片页面：{url}")
             await page.goto(url, wait_until="load")
+            print("[DEBUG] _grab_m3u8_and_headers(): 页面加载完成。")
 
-            # 3. 點擊「同意」按鈕 (#adult) 讓廣告開始播放
+            # --- 3. 点击「同意」按钮 (#adult) 让广告开始播放 ---
             try:
+                print("[DEBUG] _grab_m3u8_and_headers(): 尝试点击同意按钮 (#adult) ...")
                 await page.click("#adult")
+                print("[DEBUG] _grab_m3u8_and_headers(): 同意按钮已点击。")
             except Exception as e:
-                # 如果找不到按鈕或點擊失敗，直接拋出
+                print(f"[ERROR] _grab_m3u8_and_headers(): 点击 #adult 同意按钮失败: {e}")
                 await self.close_browser()
-                raise RuntimeError(f"找不到或無法點擊 #adult 同意按鈕: {e}") from e
+                raise RuntimeError(f"找不到或无法点击 #adult 同意按钮: {e}") from e
 
-            # 4. 監聽 response：只要有 .m3u8 就抓 URL + headers
+            # --- 4. 监听页面所有 response，只捕获同时含 .m3u8 且包含 sn 的 URL ---
             m3u8_url = None
             m3u8_headers = None
 
             def _on_response(response):
                 nonlocal m3u8_url, m3u8_headers
                 resp_url = response.url
-                # 判斷條件：URL 結尾含 .m3u8 或 URL 中間包含 .m3u8?
-                if m3u8_url is None and (resp_url.endswith(".m3u8") or ".m3u8?" in resp_url):
+                # 每个 response 都打印出来，便于调试
+                print(f"[DEBUG] _on_response(): 收到 response URL = {resp_url}")
+
+                # 判断条件：URL 中包含 ".m3u8" 且包含 sn
+                if m3u8_url is None and (".m3u8" in resp_url) and (sn in resp_url):
                     m3u8_url = resp_url
-                    # 讀出這次 request 的 headers
+                    print(f"[DEBUG] _on_response(): 匹配到目标 .m3u8 (包含 sn={sn})，m3u8_url = {m3u8_url}")
+                    # 读取此次 request 的 headers
                     try:
                         req_hdrs = response.request.headers
                         m3u8_headers = dict(req_hdrs)
-                    except Exception:
+                        print(f"[DEBUG] _on_response(): 读取到 headers_dict = {m3u8_headers}")
+                    except Exception as e:
+                        print(f"[WARNING] _on_response(): 读取 request.headers 失败: {e}")
                         m3u8_headers = {}
-            
-            page.on("response", _on_response)
 
-            # 5. 等待最多 40 秒，或一旦抓到 m3u8_url 就立即跳出
-            elapsed = 0
-            interval = 0.5  # 每 0.5 秒檢查一次
-            while elapsed < 40:
+            page.on("response", _on_response)
+            print("[DEBUG] _grab_m3u8_and_headers(): 已设置 response 监听器。")
+
+            # --- 5. 等待最多 40 秒，或一旦捕获到 m3u8_url 就立即跳出 ---
+            print("[DEBUG] _grab_m3u8_and_headers(): 开始等待最多 40 秒来捕获 .m3u8 请求 ...")
+            elapsed = 0.0
+            interval = 0.5  # 每 0.5 秒检查一次
+            while elapsed < 40.0:
                 if m3u8_url:
+                    print(f"[DEBUG] _grab_m3u8_and_headers(): 成功在 {elapsed:.1f} 秒内捕获到目标 .m3u8")
                     break
                 await asyncio.sleep(interval)
                 elapsed += interval
+            else:
+                print(f"[WARNING] _grab_m3u8_and_headers(): 已等待 40 秒，仍未捕获到包含 sn={sn} 的 .m3u8")
 
-            # 6. 關閉 Playwright
+            # --- 6. 关闭 Playwright 浏览器 ---
+            print("[DEBUG] _grab_m3u8_and_headers(): 开始关闭 Playwright 浏览器 ...")
             await self.close_browser()
+            print("[DEBUG] _grab_m3u8_and_headers(): Playwright 已关闭。")
 
+            # --- 7. 检查结果 ---
             if not m3u8_url:
-                raise RuntimeError("在 40 秒內未偵測到任何 .m3u8 請求，可能廣告尚未發出或按鈕點擊失敗。")
+                raise RuntimeError("在 40 秒内未检测到任何包含 sn 参数的 .m3u8 请求，可能广告未发出或按钮点击失败。")
             if not m3u8_headers:
-                raise RuntimeError("擷取到 .m3u8 URL，但無法讀取對應 request 的 headers。")
+                raise RuntimeError("捕获到 .m3u8 URL，但无法读取对应 request 的 headers。")
 
+            print(f"[DEBUG] _grab_m3u8_and_headers(): 返回 m3u8_url = {m3u8_url}")
+            print(f"[DEBUG] _grab_m3u8_and_headers(): 返回 headers_dict = {m3u8_headers}")
             return m3u8_url, m3u8_headers
 
-        # —— 同步部分：呼叫上面的 async func 來抓 m3u8_url、headers —— 
+        # ——— 同步部分：调用上面的 async func 捕获 m3u8_url 和 headers ———
+        print("[DEBUG] build_method(): 启动新的 event loop 来执行 _grab_m3u8_and_headers() ...")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             m3u8_url, headers_dict = loop.run_until_complete(_grab_m3u8_and_headers())
+            print("[DEBUG] build_method(): _grab_m3u8_and_headers() 返回成功。")
         except Exception as e:
+            print(f"[ERROR] build_method(): _grab_m3u8_and_headers() 抛出异常: {e}")
             loop.close()
-            print(f"[ERROR] build_method(): _grab_m3u8_and_headers() 失敗: {e}")
+            print("[DEBUG] build_method(): event loop 已关闭。")
             return
         finally:
             if not loop.is_closed():
                 loop.close()
+            print("[DEBUG] build_method(): event loop 已关闭。")
 
-        # 7. 把 headers_dict 轉成 Streamlink 所需的 --http-header 參數列表
-        #    例如: {"User-Agent": "...", "Referer": "..."} → ["--http-header", "User-Agent=...", "--http-header", "Referer=...", ...]
+        # --- 8. 将 headers_dict 转成 Streamlink 所需的 --http-header 参数列表 ---
+        print("[DEBUG] build_method(): 开始将 headers_dict 转成 header_args ...")
         header_args = []
         for key, val in headers_dict.items():
-            # 排除掉 HTTP/2 pseudo-headers (":method", ":authority" 等)
+            print(f"[DEBUG] build_method(): 处理 header — Key: {key}, Value: {val}")
+            # 排除掉 HTTP/2 伪标头（":method", ":authority" 等）
             if key.startswith(":"):
+                print(f"[DEBUG] build_method(): 跳过 pseudo-header: {key}")
                 continue
-            # Streamlink 對於某些標頭（如 Cookie）要求格式：「Cookie=name=value; name2=value2」
-            header_args += ["--http-header", f"{key}={val}"]
+            kv = f"{key}={val}"
+            header_args += ["--http-header", kv]
+            print(f"[DEBUG] build_method(): 加入 header_args => '--http-header {kv}'")
+        print(f"[DEBUG] build_method(): 最终 header_args 列表 = {header_args}")
 
-        # 8. 確保輸出資料夾存在
+        # --- 9. 确保输出文件夹存在 ---
+        print(f"[DEBUG] build_method(): 确保输出路径：{out_file}")
         folder = os.path.dirname(out_file)
         if folder and not os.path.isdir(folder):
+            print(f"[DEBUG] build_method(): 输出目录 {folder} 不存在，正在创建 ...")
             os.makedirs(folder, exist_ok=True)
+            print(f"[DEBUG] build_method(): 输出目录 {folder} 已创建。")
+        else:
+            print(f"[DEBUG] build_method(): 输出目录 {folder} 已存在或为空。")
 
-        # 9. 組裝 Streamlink 命令：將 m3u8_url 丟給 Streamlink 並帶上所有 header_args
-        #    quality="best" 表示選 HLS 清單裡標示的最高畫質，並 "-o out_file" 直接輸出成 .ts
+        # --- 10. 组装 Streamlink 命令 ---
         cmd = ["streamlink"] + header_args + [m3u8_url, "best", "-o", out_file]
-
-        print("[DEBUG] 執行 Streamlink 下載 HLS 並合併成 TS，命令如下：")
+        print("[DEBUG] build_method(): 执行 Streamlink 以下载并合并 HLS (TS)，命令如下：")
         print("  " + " \\\n  ".join(cmd))
 
-        # 10. 呼叫 Streamlink，並檢查回傳值
+        # --- 11. 调用 Streamlink 并检查返回值 ---
+        print("[DEBUG] build_method(): 调用 subprocess.run(cmd) ...")
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
-            print("[ERROR] Streamlink stderr：")
+            print("[ERROR] build_method(): Streamlink stderr：")
             print(proc.stderr)
-            print("[ERROR] Streamlink 執行失敗，請檢查失敗原因。")
+            print("[ERROR] build_method(): Streamlink 执行失败，请检查错误原因。")
             return
-
-        print(f"[OK] 下載完成，已輸出成 TS：{out_file}")
+        print(f"[DEBUG] build_method(): Streamlink 执行成功，已生成 TS：{out_file}")
+        print(f"[OK] 下载完成，TS 输出路径：{out_file}")
 
 
     def __del__(self):
