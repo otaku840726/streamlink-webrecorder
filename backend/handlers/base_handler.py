@@ -27,19 +27,32 @@ class BrowserManager:
             if cls._playwright is None:
                 cls._playwright = await async_playwright().start()
             if cls._browser is None:
-                cls._browser = await cls._playwright.chromium.launch(headless=headless)
+                cls._browser = await cls._playwright.firefox.launch(headless=headless)
             return cls._browser
 
     @classmethod
     async def new_page(cls, target_url: str):
-        browser = await cls.init()
+        browser = await cls.init(headless=False)
         context = await browser.new_context()
         await cls._restore_cookies(context, target_url)
         page = await context.new_page()
-        await page.goto(target_url)
-        await cls._restore_local_storage(page, target_url)
-        return page, context
 
+        print(f"[BrowserManager] 準備開啟 {target_url} ...")
+
+        try:
+            await page.goto(target_url, timeout=30000)  # 明確指定 timeout 30 秒
+            print("[BrowserManager] page.goto 完成")
+        except Exception as e:
+            print(f"[BrowserManager] page.goto({target_url}) 發生例外：{type(e).__name__}: {e}")
+
+        try:
+            await cls._restore_local_storage(page, target_url)
+            print("[BrowserManager] localStorage 還原完成")
+        except Exception as e:
+            print(f"[BrowserManager] 還原 localStorage 發生例外：{type(e).__name__}: {e}")
+
+        return page, context
+        
     @classmethod
     async def save_session(cls, context: BrowserContext, page: Page, target_url: str):
         parsed = urlparse(target_url)
