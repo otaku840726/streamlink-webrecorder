@@ -289,84 +289,103 @@ class GenericBingeHandler(StreamHandler):
             await page.goto(actual_mp4_url, wait_until="load")
             print("[DEBUG] 頁面載入完成。")
 
-            # 4. 从 page 中拿出 User-Agent 和 Referer，方便后续用 requests 一次性下载
+            # 5. 從 BrowserContext 抓出該 video_url 對應的所有 cookie
+            parsed = urlparse(video_url)
+            video_domain = f"{parsed.scheme}://{parsed.netloc}"
+            try:
+                # domain 必須與 video_url 相同（或更高層級）
+                cookies = await context.cookies(video_url)
+                # cookies 會是 list of dict{"name", "value", "domain", …}
+                cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+                print(f"[DEBUG] 取得 {len(cookies)} 個 cookies: {cookie_header}")
+            except Exception as e:
+                print(f"[WARNING] 無法取得 cookies: {e}")
+                cookie_header = ""
+
+            # 6. 讀取 User-Agent 及 Referer
             try:
                 user_agent = await page.evaluate("() => navigator.userAgent")
-                referer = page.url
-                print(f"[DEBUG] 获取到 User-Agent='{user_agent}'，Referer='{referer}'")
+                referer = page.url  # 頁面 URL 通常就是 referer
+                print(f"[DEBUG] user_agent = '{user_agent}'")
+                print(f"[DEBUG] referer = '{referer}'")
             except Exception as e:
-                print(f"[WARNING] 无法获取 User-Agent 或 Referer: {e}")
-                # 如果拿不到，就留空
-                user_agent = None
-                referer = None
+                print(f"[WARNING] 無法取得 User-Agent 或 Referer: {e}")
+                user_agent = ""
+                referer = ""
 
-            # **注意：此时不要立即 close_browser()，保留 page/context 以确保 Cookie 还在**
-            print("[DEBUG] 保留浏览器 Context，准备返回 URL 和 Headers 给 Python 部分。")
-            # 先关掉 Playwright 但保留拿到的字符串
-            await self.close_browser()
-            print("[DEBUG] 浏览器 Context 已关闭。")
+            # 7. 關閉 Playwright
+            print("[DEBUG] 關閉 Playwright context…")
+            await context.close()
+            await browser.close()
+            await playwright.stop()
+            print("[DEBUG] Playwright 已關閉。")
 
-            return actual_mp4_url, user_agent, referer
+            return video_url, user_agent, referer, cookie_header
 
-        # —— 在同步代码里启动 event loop，调用上面的 async func —— 
-        print("[DEBUG] build_method(): 启动 event loop 取得 video URL + Headers …")
+        # —— 同步部分：呼叫上面的 async func 得到 video_url + headers —— 
+        print("[DEBUG] build_method(): 啟動 event loop 取得 video_url + headers …")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            actual_url, ua, ref = loop.run_until_complete(_fetch_video_and_download())
-            print(f"[DEBUG] _fetch_video_and_download() 完成，actual_url='{actual_url}'")
+            video_url, ua, ref, cookie_str = loop.run_until_complete(_get_video_info_and_cookies())
+            print(f"[DEBUG] 拿到 video_url = '{video_url}'")
         except Exception as e:
-            print(f"[ERROR] build_method(): _fetch_video_and_download() 抛出异常: {e}")
+            print(f"[ERROR] build_method(): _get_video_info_and_cookies() 拋出異常: {e}")
             loop.close()
-            print("[DEBUG] build_method(): event loop 已关闭。")
+            print("[DEBUG] build_method(): event loop 已關閉。")
             return
         finally:
             if not loop.is_closed():
                 loop.close()
-            print("[DEBUG] build_method(): event loop 已关闭。")
+            print("[DEBUG] build_method(): event loop 已關閉。")
 
-        # 5. Python 部分：直接用 requests.get() 下载整支 MP4
-        print(f"[DEBUG] Python 开始用 requests 下载 MP4 → '{out_file}'")
+        # 8. 用 requests 一次性下載 MP4，帶上完整 Cookie/UA/Referer
+        print(f"[DEBUG] Python: 開始用 requests 下載 MP4 → '{out_file}'")
         headers = {}
         if ua:
             headers["User-Agent"] = ua
         if ref:
             headers["Referer"] = ref
+        if cookie_str:
+            headers["Cookie"] = cookie_str
+        # 你也可酌情加上 Accept、Accept-Language、Accept-Encoding 等
+        headers.setdefault("Accept", "video/mp4,*/*")
+        headers.setdefault("Accept-Language", "zh-TW,zh;q=0.9")
+
+        print(f"[DEBUG] 將發送以下 Header 給 requests: {headers}")
 
         try:
-            # 直接一次性下载，不分块
-            resp = requests.get(actual_url, headers=headers, timeout=60, stream=True)
+            resp = requests.get(video_url, headers=headers, timeout=60, stream=True)
         except Exception as e:
-            print(f"[ERROR] requests.get() 失败: {e}")
+            print(f"[ERROR] requests.get() 發生例外: {e}")
             return
 
         status = resp.status_code
-        print(f"[DEBUG] requests.get() 返回状态码: {status}")
+        print(f"[DEBUG] requests.get() 返回狀態碼: {status}")
         if status != 200:
-            print(f"[ERROR] 服务器返回非 200: {status}，下载失败！")
+            print(f"[ERROR] 目標伺服器回 {status}，下載失敗！")
             return
 
-        # 6. 把内容写成文件
+        # 9. 逐塊寫入讓你能看到進度
         try:
             Path(os.path.dirname(out_file)).mkdir(parents=True, exist_ok=True)
+            total_written = 0
             with open(out_file, "wb") as f:
-                # 如果 Content-Length 很大，也可以加上进度条，或者按 chunk 写入；这里只用 1MB chunk
-                total_written = 0
-                for chunk in resp.iter_content(chunk_size=1024*1024):
+                for chunk in resp.iter_content(chunk_size=1024 * 1024):  # 每次 1MB
                     if chunk:
                         f.write(chunk)
                         total_written += len(chunk)
-                        print(f"[DEBUG] 已下载 {total_written} bytes …")
+                        print(f"[DEBUG] 已下載 {total_written} bytes …")
             final_size = os.path.getsize(out_file)
-            print(f"[DEBUG] 写入完成，本地文件大小: {final_size} bytes")
+            print(f"[DEBUG] 寫檔完成，本地檔案大小: {final_size} bytes")
         except Exception as e:
-            print(f"[ERROR] 写入本地文件时异常: {e}")
+            print(f"[ERROR] 寫入本地檔案時發生例外: {e}")
             return
 
-        # 7. 最终结果
+        # 10. 印出最終結果
         filename = os.path.basename(out_file)
-        print(f"+ 已下载并保存：{filename}（{final_size/1024/1024:.2f} MB）")
-        print(f"  来源 URL：{actual_url}")
+        print(f"+ 已下載並儲存：{filename}（{final_size/1024/1024:.2f} MB）")
+        print(f"  來源 URL：{video_url}")
 
     def __del__(self):
         print("[DEBUG] GenericBingeHandler.__del__()：析構方法被呼叫。")
