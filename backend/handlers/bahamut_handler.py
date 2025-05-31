@@ -98,7 +98,17 @@ class BahamutHandler(StreamHandler):
 
     def get_ext(self):
         return "ts"
-        
+
+    def parse_urls(self, start_url: str) -> list[str]:
+        # Streamlink 模式不預先解析
+        return []
+
+    def get_new_url(self, urls: str, records: set[str]):
+        return urls[0] if urls else None
+
+    def get_final_url(self, episode_url: str):
+        return episode_url
+           
     def build_cmd(self, url: str, task, out_file: str) -> list[str]:
         """不使用命令列模式"""
         print(f"[DEBUG] build_cmd() called with url={url}, task={task}, out_file={out_file}")
