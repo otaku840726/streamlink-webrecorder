@@ -5,7 +5,7 @@ import json
 import urllib.parse
 from bs4 import BeautifulSoup
 from datetime import datetime
-from handlers.base_handler import StreamHandler
+from handlers.base_handler import StreamHandler, register_handler
 from playwright.async_api import async_playwright, Page, BrowserContext, Download
 import asyncio
 import multiprocessing
