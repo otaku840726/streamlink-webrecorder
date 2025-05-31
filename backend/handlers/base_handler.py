@@ -3,7 +3,8 @@ from abc import ABC, abstractmethod
 import multiprocessing
 from subprocess import PIPE
 import subprocess
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, BrowserContext
+import asyncio
         
 _registry = []
 
@@ -16,21 +17,27 @@ def register_handler(pattern):
 
 class BrowserManager:
     _playwright = None
-    _context = None
+    _context: BrowserContext = None
+    _lock = asyncio.Lock()
 
     @classmethod
-    async def init(cls, user_data_dir="./playwright_data", headless=True):
-        if cls._playwright is None:
-            cls._playwright = await async_playwright().start()
+    async def init(cls, user_data_dir="./playwright", headless=False):
+        async with cls._lock:
+            if cls._context:
+                return cls._context
 
-        if cls._context is None:
+            if cls._playwright is None:
+                cls._playwright = await async_playwright().start()
+
             cls._context = await cls._playwright.firefox.launch_persistent_context(
                 user_data_dir=user_data_dir,
                 headless=headless,
                 accept_downloads=True,
                 viewport={"width": 1280, "height": 800},
             )
-        return cls._context
+
+            print("[BrowserManager] Persistent context 啟動完成。")
+            return cls._context
 
     @classmethod
     async def close(cls):
