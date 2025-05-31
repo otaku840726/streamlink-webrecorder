@@ -24,7 +24,7 @@ class GenericBingeHandler(StreamHandler):
             self.playwright = await async_playwright().start()
             self.browser = await self.playwright.chromium.launch_persistent_context(
                     user_data_dir="/root/.config/chromium",
-                    headless=True,
+                    headless=False,
                     accept_downloads=True
                 )
             self.page = await self.browser.new_page()
