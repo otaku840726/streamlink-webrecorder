@@ -6,12 +6,13 @@ import urllib.parse
 from bs4 import BeautifulSoup
 from datetime import datetime
 from handlers.base_handler import StreamHandler
-from playwright.async_api import async_playwright, Page, BrowserContext
 import asyncio
 import multiprocessing
 from subprocess import PIPE
 import time
 import shutil
+from pathlib import Path
+from playwright.async_api import async_playwright, Page, Browser, BrowserContext, Download
 
 class GenericBingeHandler(StreamHandler):
     def __init__(self):
@@ -21,32 +22,60 @@ class GenericBingeHandler(StreamHandler):
         self.page = None
 
     async def init_browser(self):
+        """
+        不在本地啟動瀏覽器，而是連到 Browserless 提供的 WebSocket 端點。
+        這裡假設環境變數 BROWSERLESS_WS_ENDPOINT 已經設好，格式類似：
+          - wss://chrome.browserless.io?token=YOUR_TOKEN
+          - ws://localhost:3000/playwright       (視你架的映像而定)
+
+        因為 browserless.io 預設會以 CDP （Chrome DevTools Protocol）對外服務，所以要使用
+        playwright.chromium.connect_over_cdp() 而非 playwright.chromium.launch()。
+        """
         if not self.playwright:
             self.playwright = await async_playwright().start()
-            
-            # self.browser = await self.playwright.chromium.launch_persistent_context(
-            #         user_data_dir="/root/.config/chromium",
-            #         headless=False,
-            #         accept_downloads=True
-            #     )
 
-            system_firefox = shutil.which("firefox")
-            if not system_firefox:
-                raise RuntimeError("系統上找不到 firefox，可先安裝或指定正確路徑")
-            self.browser = await self.playwright.firefox.launch(
-                headless=False,
-                executable_path=system_firefox
+            # 取得 env 裡的 WebSocket endpoint
+            ws_endpoint = os.getenv("BROWSERLESS_WS_ENDPOINT") if os.getenv("BROWSERLESS_WS_ENDPOINT") else '127.0.0.1:3000'
+            if not ws_endpoint:
+                raise RuntimeError("環境變數 BROWSERLESS_WS_ENDPOINT 尚未設定")
+
+            # 連到遠端 CDP，取得 Browser 實例
+            self.browser = await self.playwright.chromium.connect_over_cdp(
+                ws_endpoint
             )
-            
-            self.page = await self.browser.new_page()
+            # 在同一個 瀏覽器上下文 裡新開一個分頁／頁籤
+            # 如果需要「persistent context」（保留 cookie/session），browserless 也會支援
+            context: BrowserContext = await self.browser.new_context(
+                accept_downloads=True  # 確保啟動下載功能
+            )
+            self.page = await context.new_page()
 
     async def close_browser(self):
-        if self.browser:
-            await self.browser.close()
-            await self.playwright.stop()
-            self.browser = None
-            self.playwright = None
+        """
+        關閉遠端連線。只關閉 Playwright 控制端口，不會關掉
+        browserless server 本身（那由服務端自己維護）。
+        """
+        if self.page:
+            # 先關閉頁面
+            try:
+                await self.page.close()
+            except:
+                pass
             self.page = None
+
+        if self.browser:
+            try:
+                await self.browser.close()
+            except:
+                pass
+            self.browser = None
+
+        if self.playwright:
+            try:
+                await self.playwright.stop()
+            except:
+                pass
+            self.playwright = None
 
     async def get_episode_urls_async(self, category_url: str) -> list[str]:
         episodes = {}
@@ -123,71 +152,99 @@ class GenericBingeHandler(StreamHandler):
 
     def build_method(self, url: str, task, out_file: str):
         """
-        同步 (blocking) 版，直接在同一個分頁利用 <a download> 下載 .mp4：
-        1. 攔截第一筆 .mp4 回應（包括 206 Partial），取得真正串流 URL。
-        2. 在同一個 self.page 中動態產生 <a download> 並點擊，等待 download 事件，儲存到 out_file。
+        同步 (blocking) 版，利用遠端的 Browserless 下載影片。
+        流程概述：
+          1. 連到遠端 browserless (init_browser)
+          2. 在 page 直接取出 <video> 或 data-src 裡的 URL，不用 click 播放 (避免播放失敗)
+          3. 生成 <a download>，觸發瀏覽器下載 (在遠端 context 裡)
+          4. 等待 download 事件，呼叫 download.save_as(out_file)
+          5. 關閉 playwrigth 控制 client (不關 browserless server)
         """
 
-        async def _fetch_and_dl_in_same_page():
-            # 1. 初始化 Playwright browser context
+        async def _fetch_video_and_download():
+            # 1. 初始化遠端瀏覽器環境
             await self.init_browser()
             page = self.page
 
-            # 2. 先註冊等待「URL 以 .mp4 結尾且 status 為 200 或 206」的 response
-            mp4_response_task = page.wait_for_event(
-                "response",
-                lambda resp: resp.url.lower().endswith(".mp4") and resp.status in (200, 206)
+            # 2. 直接導航到影片頁面
+            await page.goto(url, wait_until="load")
+
+            # 3. 嘗試從 DOM 直接抓影片 URL，例如 <video src="..." data-src="..."> 或 JS 全域變數
+            actual_mp4_url = await page.evaluate(
+                """() => {
+                    let vid = document.querySelector("video");
+                    if (vid) {
+                        // (A) <video src="...">
+                        if (vid.src) {
+                            return vid.src;
+                        }
+                        // (B) <video data-src="...">
+                        const ds = vid.getAttribute("data-src");
+                        if (ds) {
+                            return ds;
+                        }
+                    }
+                    // (C) 如果有全域 JS 變數，例如 window.videoUrl
+                    if (window.videoUrl) {
+                        return window.videoUrl;
+                    }
+                    // 你可以依實際頁面結構自行擴充
+                    return "";
+                }()"""
             )
 
-            # 3. 前往播放頁並觸發播放
-            await page.goto(url, wait_until="load")
-            await page.click(".vjs-big-play-centered")
+            if not actual_mp4_url:
+                raise RuntimeError("無法從頁面 DOM 取得影片 URL，請確認 <video> 結構或自定義 JS 變數")
 
-            # 4. 等待那筆 .mp4 回應到來，取得最終串流 URL
-            mp4_resp = await mp4_response_task
-            actual_mp4_url = mp4_resp.url
+            # 4. 補全協議相對 URL (若以 // 開頭)，或者相對路徑
+            if actual_mp4_url.startswith("//"):
+                actual_mp4_url = "https:" + actual_mp4_url
+            elif actual_mp4_url.startswith("/"):
+                # 用 JS 取得當前頁面 origin，再接上相對路徑
+                origin = await page.evaluate("() => window.location.origin")
+                actual_mp4_url = origin + actual_mp4_url
 
-            # 5. 註冊同一個分頁的 download 事件
+            # 5. 因為有可能伺服器對影片回傳 206 Partial Content，但瀏覽器內建 download 會自動串聯
+            #    在同一個 page 裡註冊等待 download 事件
             download_task = page.wait_for_event("download")
 
-            # 6. 在同一個分頁裡動態插入 <a download>，並自動點擊
-            #    這段 JavaScript 會把 <a> 加到 DOM 中並觸發 click()
-            js = f'''
+            # 6. 動態注入一段 <a download> 的 JS，立即觸發點擊
+            js = f"""
                 (() => {{
                   const a = document.createElement("a");
                   a.href = "{actual_mp4_url}";
-                  a.download = "";            // 只要有 download 屬性，瀏覽器就會視為下載
-                  a.style.display = "none";   // 不顯示在畫面上
+                  a.download = "";
+                  a.style.display = "none";
                   document.body.appendChild(a);
                   a.click();
-                  document.body.removeChild(a); // 下載觸發後可以移除
+                  document.body.removeChild(a);
                 }})();
-            '''
+            """
             await page.evaluate(js)
 
-            # 7. 等待瀏覽器真正觸發 download 事件
+            # 7. 等候瀏覽器觸發 download 事件
             download: Download = await download_task
 
-            # 8. 下載完成後把檔案存在 out_file
+            # 8. 把檔案另存到 out_file
             Path(os.path.dirname(out_file)).mkdir(parents=True, exist_ok=True)
             await download.save_as(out_file)
 
-            # 9. 關閉瀏覽器 context，釋放資源
+            # 9. 關閉 Playwright 端的資料結構（不會關 browserless server）
             await self.close_browser()
 
-            # 10. 回傳來源 URL 以及檔案大小（bytes）
+            # 10. 回傳影片 URL + 本地檔案大小
             file_size = os.path.getsize(out_file)
             return actual_mp4_url, file_size
 
-        # —— 把上述 async 包在同步流程裡運行 —— 
+        # —— 同步部分開始 —— 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            actual_url, size_bytes = loop.run_until_complete(_fetch_and_dl_in_same_page())
+            actual_url, size_bytes = loop.run_until_complete(_fetch_video_and_download())
         finally:
             loop.close()
 
-        # 同步輸出結果
+        # 同步列印結果
         filename = os.path.basename(out_file)
         print(f"+ 已下載並儲存：{filename}（{size_bytes/1024/1024:.2f} MB）")
         print(f"  來源 URL：{actual_url}")
