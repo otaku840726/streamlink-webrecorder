@@ -154,6 +154,8 @@ class GenericBingeHandler(StreamHandler):
         except Exception:
             pass
 
+        print(f"[DEBUG] 攔截到的 .mp4 URL：{actual_mp4_url}")
+        print(f"[DEBUG] 攔截到的 headers：{req_headers}")
         # 6. 用 requests 同步下載 .mp4，帶上攔截到的 headers
         response = requests.get(actual_mp4_url, headers=req_headers, stream=True)
         total_size = int(response.headers.get("content-length", 0) or 0)

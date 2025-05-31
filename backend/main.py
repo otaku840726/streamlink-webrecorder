@@ -415,11 +415,6 @@ def record_stream(task):
     u = handler.get_new_url(urls, recorded)
     nowstr = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_file = os.path.join(save_path, f"{task.name}_{nowstr}.ts")
-
-    # 使用統一的介面啟動錄影
-    proc = handler.start_recording(handler.get_final_url(u), task, out_file)
-
-    write_log(task.id, "start", f"CMD: {' '.join(base_cmd)}")
     proc = None
     conversion_triggered = False # 新增標誌，用於跟踪是否已觸發轉碼
     thumbnail_thread = None # 用於在錄製過程中生成縮圖的線程
@@ -427,7 +422,10 @@ def record_stream(task):
 
     try:
         # ========== 註冊進程 ==========
-        proc = subprocess.Popen(base_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        # 使用統一的介面啟動錄影
+        proc = handler.start_recording(handler.get_final_url(u), task, out_file)
+
         active_recordings[task.id] = proc
 
         # 啟動定期生成縮圖的線程
