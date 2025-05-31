@@ -45,9 +45,10 @@ class BrowserManager:
     @classmethod
     async def new_page(cls, target_url: str) -> Page:
         print(f"[BrowserManager] 準備開啟 {target_url}...")
-        await cls.init()
-
         async with cls._semaphore:  # 控制併發
+            print(f"[BrowserManager] cls._semaphore 獲取成功，準備開啟新的 page")
+            await cls.init()
+            print(f"[BrowserManager] init 完成")
             page = await cls._context.new_page()
             print(f"[BrowserManager] new_page 完成，開始導向 {target_url}")
             try:
