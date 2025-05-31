@@ -402,24 +402,27 @@ import multiprocessing
 
 def record_stream(task):
     """
-    兼容 subprocess.Popen 以及 multiprocessing.Process 版本的錄影流程，
-    並在錄影成功後寫入 recorded.json。
+    兼容 subprocess.Popen 與 multiprocessing.Process 的錄影流程，
+    並在錄影成功後寫入 recorded.json。對於 multiprocessing.Process，
+    成功判斷改為只要 out_file 存在即可，不以 returncode 作唯一準則。
     """
-    # ——— helper: 統一處理 proc，支援 Popen 與 Process ———
+
+    # ——— 1. Helper: 統一處理 Popen 和 Process ———
     def handle_proc(proc):
         """
-        如果 proc 有 communicate()，視為 subprocess.Popen，
-        用 communicate() 拿 stdout/stderr 及 returncode。
-        否則視為 multiprocessing.Process，用 join() 等待結束，
-        returncode = proc.exitcode，stdout/stderr 設為空字串。
-        回傳 (returncode, std_out_msg, std_err_msg)。
+        如果 proc 是 subprocess.Popen，就用 .communicate() 取得 stdout/stderr 和 returncode；
+        如果 proc 是 multiprocessing.Process，就用 .join() 等待結束，再用 .exitcode 作 returncode，
+        但不以 returncode 判斷是否成功，stdout/stderr 均設為空字串。
+        回傳 (is_process, returncode, std_out_msg, std_err_msg)。
+        is_process == True 表示原本是 multiprocessing.Process。
         """
+        is_process = False
         returncode = None
         std_out_msg = ""
         std_err_msg = ""
 
-        if hasattr(proc, "communicate"):
-            # subprocess.Popen 情況
+        # 判斷如果是 Popen 或有 communicate 屬性，就當成 subprocess.Popen
+        if isinstance(proc, subprocess.Popen) or hasattr(proc, "communicate"):
             try:
                 stdout, stderr = proc.communicate()
                 returncode = proc.returncode
@@ -435,30 +438,27 @@ def record_stream(task):
                 returncode = getattr(proc, "returncode", None)
                 std_err_msg = f"communicate() 例外: {e}"
         else:
-            # multiprocessing.Process 情況
+            # multiprocessing.Process
+            is_process = True
             try:
                 proc.join()
                 returncode = proc.exitcode
-                std_out_msg = ""
-                std_err_msg = ""
+                # Process 不提供 stdout/stderr
             except Exception as e:
                 returncode = getattr(proc, "exitcode", None)
                 std_err_msg = f"join() 例外: {e}"
 
-        return returncode, std_out_msg, std_err_msg
+        return is_process, returncode, std_out_msg, std_err_msg
 
-    # ——— record_stream 主流程開始 ———
-    # 準備存放路徑
+    # ——— 2. record_stream 主流程 ———
     save_path = os.path.join(RECORDINGS_DIR, task.save_dir.strip("/"))
     os.makedirs(save_path, exist_ok=True)
 
     handler = get_handler(task)
-    # 解析 URL 清單（追劇模式或特定站點）
     urls = handler.parse_urls(task.url)
     if not urls:
         urls = [task.url]
 
-    # 讀取已錄列表
     meta_file = os.path.join(save_path, "recorded.json")
     recorded = set()
     if os.path.exists(meta_file):
@@ -467,22 +467,22 @@ def record_stream(task):
         except Exception:
             recorded = set()
 
-    # 產生統一 out_file
     u = handler.get_new_url(urls, recorded)
     nowstr = datetime.now().strftime("%Y%m%d_%H%M%S")
     ext = handler.get_ext()
     out_file = os.path.join(save_path, f"{task.name}_{nowstr}.{ext}")
+
     proc = None
-    conversion_triggered = False  # 用來追蹤是否已觸發轉碼
+    conversion_triggered = False
     thumbnail_thread = None
     stop_flag = threading.Event()
 
     try:
-        # ========== 啟動錄影進程 ==========
+        # ——— 啟動錄影進程 ———
         proc = handler.start_recording(handler.get_final_url(u), task, out_file)
         active_recordings[task.id] = proc
 
-        # 啟動定期生成縮圖的線程
+        # 啟動縮圖線程
         thumbnail_thread = threading.Thread(
             target=generate_thumbnails_periodically,
             args=(out_file, task.id, stop_flag),
@@ -490,14 +490,27 @@ def record_stream(task):
         )
         thumbnail_thread.start()
 
-        # 等待子進程結束，並取得 returncode/stdout/stderr
-        returncode, std_out_msg, std_err_msg = handle_proc(proc)
+        # 等待並取得子進程回傳資訊
+        is_process, returncode, std_out_msg, std_err_msg = handle_proc(proc)
 
-        if returncode == 0:
-            write_log(task.id, "end", f"SUCCESS: {out_file}")
-            # 若 out_file 存在，才寫 meta_file
+        # 對 subprocess.Popen：以 returncode == 0 判斷成功
+        # 對 multiprocessing.Process：只要檔案存在就算成功
+        succeeded = False
+        if is_process:
             if os.path.exists(out_file):
-                print("[DEBUG] 0001")
+                succeeded = True
+            else:
+                succeeded = False
+        else:
+            if returncode == 0:
+                succeeded = True
+            else:
+                succeeded = False
+
+        if succeeded:
+            write_log(task.id, "end", f"SUCCESS: {out_file}")
+            if os.path.exists(out_file):
+                print("[DEBUG] 0001: out_file 已存在")
                 recorded.add(u)
                 try:
                     with open(meta_file, 'w', encoding='utf-8') as mf:
@@ -506,23 +519,23 @@ def record_stream(task):
                 except Exception as e:
                     print(f"[ERROR] 寫入 recorded.json 失敗: {e}")
 
-                # 錄製完成後，生成最終的完整縮圖
+                # 生成最終縮圖
                 try:
                     generate_thumbnail(out_file)
-                    print("[DEBUG] 0002 已生成最終縮圖")
+                    print("[DEBUG] 0002: 已生成最終縮圖")
                 except Exception as e:
                     print(f"[ERROR] generate_thumbnail 失敗: {e}")
 
-                # 轉檔：.ts → .mp4
+                # 轉檔 .ts → .mp4
                 quality_to_use = task.default_conversion_quality if task.default_conversion_quality else "high"
                 if out_file.endswith(".ts"):
                     try:
                         convert_recording(task.id, out_file, quality=quality_to_use)
                         conversion_triggered = True
+                        print("[DEBUG] 已呼叫 convert_recording()")
                     except Exception as e:
                         print(f"[ERROR] convert_recording 失敗: {e}")
         else:
-            # 錯誤處理：寫 log
             reason = std_err_msg or std_out_msg or "Unknown"
             main_line = reason.splitlines()[0] if reason else "Unknown"
             if "No playable streams found" in reason or "No streams found" in reason:
@@ -530,32 +543,33 @@ def record_stream(task):
             else:
                 write_log(task.id, "error", f"ERROR: {main_line}")
     except Exception as e:
-        print(f"[DEBUG] 0003 {e}")
+        print(f"[DEBUG] 0003 Exception: {e}")
         write_log(task.id, "error", f"EXCEPTION: {str(e)}")
     finally:
-        # ========== 關閉/清理 ==========
+        # 清理
         active_recordings.pop(task.id, None)
         stop_flag.set()
         if thumbnail_thread and thumbnail_thread.is_alive():
             pass
 
-        # 在 finally 也做轉檔與縮圖，若尚未觸發且 out_file 存在
+        # finally 區塊：若尚未觸發轉檔且 out_file 存在，也生成縮圖和轉檔
         if not conversion_triggered and os.path.exists(out_file):
             try:
                 generate_thumbnail(out_file)
-                print("[DEBUG] 0004 已生成最終縮圖 (finally 區塊)")
+                print("[DEBUG] 0004: finally 區塊已生成最終縮圖")
             except Exception as e:
-                print(f"[ERROR] finally 區塊 generate_thumbnail 失敗: {e}")
+                print(f"[ERROR] finally generate_thumbnail 失敗: {e}")
 
             quality_to_use = task.default_conversion_quality if task.default_conversion_quality else "high"
             if out_file.endswith(".ts"):
                 try:
                     convert_recording(task.id, out_file, quality=quality_to_use)
-                    print("[DEBUG] finally 區塊轉檔完成")
+                    print("[DEBUG] finally 區塊已呼叫 convert_recording()")
                 except Exception as e:
-                    print(f"[ERROR] finally 區塊 convert_recording 失敗: {e}")
+                    print(f"[ERROR] finally convert_recording 失敗: {e}")
 
         print("[DEBUG] record_stream() 完成。")
+
 
 
 def add_job(task: Task):
