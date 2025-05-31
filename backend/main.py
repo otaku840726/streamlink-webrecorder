@@ -439,7 +439,7 @@ def record_stream(task):
         if proc.returncode == 0:
             write_log(task.id, "end", f"SUCCESS: {out_file}")
             # --- 自動轉成 MP4 --- (統一使用 ts_to_mp4 函數)
-            if os.path.exists(out_file) & out_file.endswith(".ts"):
+            if os.path.exists(out_file):
                 # 標記已錄
                 recorded.add(u)
                 with open(meta_file, 'w', encoding='utf-8') as mf:
@@ -449,7 +449,8 @@ def record_stream(task):
                 generate_thumbnail(out_file) # 使用原始的 generate_thumbnail 生成完整縮圖
                 # 使用任務中定義的預設品質，如果沒有則使用 'high'
                 quality_to_use = task.default_conversion_quality if task.default_conversion_quality else "high"
-                convert_recording(task.id, out_file, quality=quality_to_use)
+                if out_file.endswith(".ts"):
+                    convert_recording(task.id, out_file, quality=quality_to_use)
                 conversion_triggered = True # 標記已觸發轉碼
         else:
             # 無論錯誤訊息在哪裡，都抓進 log
@@ -476,7 +477,8 @@ def record_stream(task):
             generate_thumbnail(out_file) # 確保即使錄製失敗也有縮圖
             # 使用任務中定義的預設品質，如果沒有則使用 'high'
             quality_to_use = task.default_conversion_quality if task.default_conversion_quality else "high"
-            convert_recording(task.id, out_file, quality=quality_to_use)
+            if out_file.endswith(".ts"): 
+                convert_recording(task.id, out_file, quality=quality_to_use)
 
 def add_job(task: Task):
     stop_hls_stream(task.id)  # 保險先停
