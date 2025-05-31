@@ -8,7 +8,7 @@ apt-get update && apt-get install -y \
     gstreamer1.0-gl gstreamer1.0-plugins-base \
     gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
     gstreamer1.0-libav libwoff1 libavif13  libharfbuzz-icu0 \
-    libenchant-2-2 libhyphen0 libmanette-0.2-0 \
+    libenchant-2-2 libhyphen0 libmanette-0.2-0 && \
     apt-get update
 
 python3 -m venv /venv
