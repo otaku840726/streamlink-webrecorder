@@ -9,7 +9,7 @@
         path /task* /hls* /thumbnails* /conversion_status*
     }
     handle @streamlink-api {
-        reverse_proxy 127.0.0.1:8800
+        reverse_proxy 172.18.0.42:8800
     }
     # 其余请求（也就是前端静态资源）都 Proxy 到前端
     handle {
