@@ -27,7 +27,7 @@ class BrowserManager:
             if cls._playwright is None:
                 cls._playwright = await async_playwright().start()
             if cls._browser is None:
-                cls._browser = await cls._playwright.firefox.launch(headless=headless)
+                cls._browser = await cls._playwright.firefox.launch(headless=headless, args=["--no-sandbox", "--disable-dev-shm-usage"])
             return cls._browser
 
     @classmethod
