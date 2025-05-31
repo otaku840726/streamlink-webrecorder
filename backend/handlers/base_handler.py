@@ -32,12 +32,16 @@ class BrowserManager:
 
     @classmethod
     async def new_page(cls, target_url: str):
+        print(f"[BrowserManager] 準備開啟 {target_url}...")
         browser = await cls.init(headless=False)
+        print(f"[BrowserManager] init 完成")
         context = await browser.new_context()
+        print(f"[BrowserManager] new_context 完成")
         await cls._restore_cookies(context, target_url)
+        print(f"[BrowserManager] restore_cookies 完成")
         page = await context.new_page()
+        print(f"[BrowserManager] new_page 完成")
 
-        print(f"[BrowserManager] 準備開啟 {target_url} ...")
 
         try:
             await page.goto(target_url, timeout=30000)  # 明確指定 timeout 30 秒
@@ -52,7 +56,7 @@ class BrowserManager:
             print(f"[BrowserManager] 還原 localStorage 發生例外：{type(e).__name__}: {e}")
 
         return page, context
-        
+
     @classmethod
     async def save_session(cls, context: BrowserContext, page: Page, target_url: str):
         parsed = urlparse(target_url)
