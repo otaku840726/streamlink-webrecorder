@@ -1,23 +1,23 @@
 version: '3.8'
 services:
-  backend:
-    build: ./backend
-    container_name: streamlink-web-backend
-    privileged: true
-#    ports:
-#      - "13052:8800"
-    environment:
-      TZ: Asia/Taipei
-    devices:
-      - /dev/dri/card0:/dev/dri/card0
-      - /dev/dri/renderD128:/dev/dri/renderD128
-    volumes:
-      - ./data:/data
-      - ./recordings:/recordings
-      - ./hls:/hls
-      - ./thumbnails:/thumbnails
-      # - ./ms-playwright:/root/.cache/ms-playwright
-      - ./chromium:/root/.config/chromium
+#   backend:
+#     build: ./backend
+#     container_name: streamlink-web-backend
+#     privileged: true
+# #    ports:
+# #      - "13052:8800"
+#     environment:
+#       TZ: Asia/Taipei
+#     devices:
+#       - /dev/dri/card0:/dev/dri/card0
+#       - /dev/dri/renderD128:/dev/dri/renderD128
+#     volumes:
+#       - ./data:/data
+#       - ./recordings:/recordings
+#       - ./hls:/hls
+#       - ./thumbnails:/thumbnails
+#       # - ./ms-playwright:/root/.cache/ms-playwright
+#       - ./chromium:/root/.config/chromium
 
     restart: unless-stopped
 
@@ -28,8 +28,8 @@ services:
 #      - "13053:80"
     environment:
       TZ: Asia/Taipei
-    depends_on:
-      - backend
+    # depends_on:
+    #   - backend
     restart: unless-stopped
 
   caddy:
@@ -40,7 +40,7 @@ services:
     environment:
       TZ: Asia/Taipei
     depends_on:
-      - backend
+      # - backend
       - frontend
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
