@@ -269,6 +269,26 @@ class GenericBingeHandler(StreamHandler):
                 await self.close_browser()
                 raise RuntimeError("實際影片 URL 為空")
 
+           # 6. 補全協議相對 URL（如果有需要）
+            if actual_mp4_url.startswith("//"):
+                print("[DEBUG] actual_mp4_url 以 '//' 開頭，補全為 https 協議。")
+                actual_mp4_url = "https:" + actual_mp4_url
+            elif actual_mp4_url.startswith("/"):
+                print("[DEBUG] actual_mp4_url 以 '/' 開頭，使用 window.location.origin 補全相對路徑。")
+                try:
+                    origin = await page.evaluate("() => window.location.origin")
+                    actual_mp4_url = origin + actual_mp4_url
+                    print(f"[DEBUG] 補全後的 URL = {actual_mp4_url}")
+                except Exception as e:
+                    print(f"[ERROR] 取得 window.location.origin 時失敗: {e}")
+                    await self.close_browser()
+                    raise
+
+            # 2. 導航到影片頁面
+            print(f"[DEBUG] page.goto({actual_mp4_url})")
+            await page.goto(actual_mp4_url, wait_until="load")
+            print("[DEBUG] 頁面載入完成。")
+
             # 5. 嘗試找到「下載按鈕」的可能 selector
             #    這邊舉例用中文「下載」或英文「Download」做查詢，你可以根據實際 HTML 再微調
             download_selectors = [
