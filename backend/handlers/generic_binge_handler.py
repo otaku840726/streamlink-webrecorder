@@ -25,7 +25,7 @@ class GenericBingeHandler(StreamHandler):
             self.playwright = await async_playwright().start()
             
             self.browser = await self.playwright.firefox.launch_persistent_context(
-                    user_data_dir="~/.config/chromium",
+                    user_data_dir="./playwright",
                     headless=False,
                     accept_downloads=True,
                     viewport={"width": 1280, "height": 800},
