@@ -209,77 +209,73 @@ class GenericBingeHandler(StreamHandler):
         return None
 
     def build_method(self, url: str, task, out_file: str):
-        """
-        同步 (blocking) 版，利用遠端的 Browserless 下載影片。
-        流程概述：
-          1. 連到遠端 browserless (init_browser)
-          2. 在 page 直接取出 <video> 或 data-src 裡的 URL，不用 click 播放 (避免播放失敗)
-          3. 生成 <a download>，觸發瀏覽器下載 (在遠端 context 裡)
-          4. 等待 download 事件，呼叫 download.save_as(out_file)
-          5. 關閉 Playwright 控制 client (不關 browserless server)
-        """
         print(f"[DEBUG] build_method() called with url={url}, task={task}, out_file={out_file}")
 
         async def _fetch_video_and_download():
-            print("[DEBUG] _fetch_video_and_download() 開始執行。")
-            # 1. 初始化遠端瀏覽器環境
+            print("[DEBUG] _fetch_video_and_download() 开始执行。")
+            # 1. 初始化浏览器
             print("[DEBUG] 呼叫 init_browser() ...")
             await self.init_browser()
             page = self.page
-            print("[DEBUG] init_browser() 完成，開始導航至影片頁面...")
+            print("[DEBUG] init_browser() 完成，开始导航至影片页面...")
 
-            # 2. 直接導航到影片頁面
+            # 2. 导航到影片页面
             print(f"[DEBUG] page.goto({url})")
             await page.goto(url, wait_until="load")
-            print("[DEBUG] 頁面載入完成。")
+            print("[DEBUG] 页面加载完成。")
 
-            # 3. 嘗試從 DOM 直接抓影片 URL
-            print("[DEBUG] 嘗試從 DOM 提取 actual_mp4_url...")
-            actual_mp4_url = await page.evaluate(
-                """() => {
-                    let vid = document.querySelector("video");
-                    if (vid) {
-                        // (A) <video src="...">
-                        if (vid.src) {
+            # 3. 点击播放按钮，让 <video> 元素出现并载入 src
+            try:
+                print("[DEBUG] 点击播放按钮 (.vjs-big-play-centered) ...")
+                await page.click(".vjs-big-play-centered")
+                print("[DEBUG] 播放按钮已点击，等待 video 元素出现 (最多等 10 秒)...")
+                await page.wait_for_selector("video", timeout=10000)
+                print("[DEBUG] video 元素已出现。")
+            except Exception as e:
+                print(f"[ERROR] 点击播放或等待 video 元素时出异常: {e}")
+                raise RuntimeError("无法在页面上点击播放或找到 <video> 元素") from e
+
+            # 4. 从 DOM 直接获取 video.src
+            print("[DEBUG] 执行 page.evaluate() 读取 video.src ...")
+            try:
+                actual_mp4_url = await page.evaluate(
+                    """() => {
+                        const vid = document.querySelector("video");
+                        if (vid && vid.src) {
                             return vid.src;
                         }
-                        // (B) <video data-src="...">
-                        const ds = vid.getAttribute("data-src");
-                        if (ds) {
-                            return ds;
-                        }
-                    }
-                    // (C) 如果有全域 JS 變數，例如 window.videoUrl
-                    if (window.videoUrl) {
-                        return window.videoUrl;
-                    }
-                    // 你可以依實際頁面結構自行擴充
-                    return "";
-                }()"""
-            )
-            print(f"[DEBUG] 從 DOM 取得 actual_mp4_url = '{actual_mp4_url}'")
+                        return "";
+                    }()"""
+                )
+                print(f"[DEBUG] 从 DOM 取得 actual_mp4_url = '{actual_mp4_url}'")
+            except Exception as e:
+                print(f"[ERROR] page.evaluate() 抛出异常: {e}")
+                raise
 
             if not actual_mp4_url:
-                error_msg = "無法從頁面 DOM 取得影片 URL，請確認 <video> 結構或自定義 JS 變數"
-                print(f"[ERROR] {error_msg}")
-                raise RuntimeError(error_msg)
+                print("[ERROR] 读取到的 actual_mp4_url 为空，可能影片尚未就绪。")
+                raise RuntimeError("实际影片 URL 为空")
 
-            # 4. 補全協議相對 URL (若以 // 開頭)，或者相對路徑
+            # 5. 补全相对 URL（如果有）
             if actual_mp4_url.startswith("//"):
-                print("[DEBUG] actual_mp4_url 以 '//' 開頭，補全為 https 協議。")
+                print("[DEBUG] actual_mp4_url 以 '//' 开头，补全为 https 协议。")
                 actual_mp4_url = "https:" + actual_mp4_url
             elif actual_mp4_url.startswith("/"):
-                print("[DEBUG] actual_mp4_url 以 '/' 開頭，使用 window.location.origin 補全相對路徑。")
-                origin = await page.evaluate("() => window.location.origin")
-                actual_mp4_url = origin + actual_mp4_url
-            print(f"[DEBUG] 最終的 actual_mp4_url = {actual_mp4_url}")
+                print("[DEBUG] actual_mp4_url 以 '/' 开头，使用 window.location.origin 补全相对路径。")
+                try:
+                    origin = await page.evaluate("() => window.location.origin")
+                    actual_mp4_url = origin + actual_mp4_url
+                    print(f"[DEBUG] 补全后的 URL = {actual_mp4_url}")
+                except Exception as e:
+                    print(f"[ERROR] 获取 window.location.origin 时出错: {e}")
+                    raise
 
-            # 5. 註冊等待 download 事件
-            print("[DEBUG] 註冊 download 事件監聽 (page.wait_for_event('download'))")
+            # 6. 注册等待 download 事件
+            print("[DEBUG] 注册 download 事件监听 (page.wait_for_event('download'))")
             download_task = page.wait_for_event("download")
 
-            # 6. 動態注入一段 <a download> 的 JS，立即觸發點擊
-            print("[DEBUG] 注入 <a download> 觸發下載...")
+            # 7. 动态注入 <a download> 并触发下载
+            print(f"[DEBUG] 注入 <a download> 并触发下载，目标 URL = {actual_mp4_url}")
             js = f"""
                 (() => {{
                   const a = document.createElement("a");
@@ -291,45 +287,67 @@ class GenericBingeHandler(StreamHandler):
                   document.body.removeChild(a);
                 }})();
             """
-            await page.evaluate(js)
-            print("[DEBUG] 已執行下載觸發 JS。")
+            try:
+                await page.evaluate(js)
+                print("[DEBUG] 已执行 JS，下载已触发。")
+            except Exception as e:
+                print(f"[ERROR] 执行下载触发 JS 时出异常: {e}")
+                raise
 
-            # 7. 等候瀏覽器觸發 download 事件
+            # 8. 等待浏览器触发 download 事件
             print("[DEBUG] 等待 download 事件完成...")
-            download: Download = await download_task
-            print("[DEBUG] 已收到 Download 事件。")
+            try:
+                download = await download_task
+                print("[DEBUG] 收到 Download 事件。")
+            except Exception as e:
+                print(f"[ERROR] 等待 Download 事件时出异常: {e}")
+                raise
 
-            # 8. 把檔案另存到 out_file
-            print(f"[DEBUG] 準備儲存下載檔案到: {out_file}")
-            Path(os.path.dirname(out_file)).mkdir(parents=True, exist_ok=True)
-            await download.save_as(out_file)
-            print(f"[DEBUG] 下載檔案已儲存至: {out_file}")
+            # 9. 保存到本地 out_file
+            print(f"[DEBUG] 准备将文件保存到: {out_file}")
+            try:
+                from pathlib import Path
+                Path(os.path.dirname(out_file)).mkdir(parents=True, exist_ok=True)
+                await download.save_as(out_file)
+                print(f"[DEBUG] 下载文件已保存到: {out_file}")
+            except Exception as e:
+                print(f"[ERROR] save_as() 时出现异常: {e}")
+                raise
 
-            # 9. 關閉 Playwright 端的資料結構（不會關 browserless server）
-            print("[DEBUG] _fetch_video_and_download(): 準備關閉瀏覽器。")
+            # 10. 关闭浏览器端资源
+            print("[DEBUG] _fetch_video_and_download(): 准备关闭浏览器。")
             await self.close_browser()
-            print("[DEBUG] _fetch_video_and_download(): 瀏覽器關閉完成。")
+            print("[DEBUG] _fetch_video_and_download(): 浏览器关闭完成。")
 
-            # 10. 回傳影片 URL + 本地檔案大小
-            file_size = os.path.getsize(out_file)
-            print(f"[DEBUG] 本地檔案大小: {file_size} bytes")
+            # 11. 返回影片 URL + 本地文件大小
+            try:
+                file_size = os.path.getsize(out_file)
+                print(f"[DEBUG] 本地文件大小: {file_size} bytes")
+            except Exception as e:
+                print(f"[WARNING] 无法获取文件大小: {e}")
+                file_size = -1
             return actual_mp4_url, file_size
 
-        # —— 同步部分開始 —— 
-        print("[DEBUG] build_method(): 建立並啟動新的 event loop 進行下載。")
+        # —— 同步部分开始 ——
+        print("[DEBUG] build_method(): 创建并启动新的 event loop 进行下载。")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             actual_url, size_bytes = loop.run_until_complete(_fetch_video_and_download())
-            print("[DEBUG] 下載任務完成，取得 actual_url 及 size_bytes。")
+            print(f"[DEBUG] 下载任务完成，actual_url = {actual_url}，size_bytes = {size_bytes}")
+        except Exception as e:
+            print(f"[ERROR] build_method(): _fetch_video_and_download() 抛出异常: {e}")
         finally:
-            print("[DEBUG] build_method(): 正在關閉 event loop。")
+            print("[DEBUG] build_method(): 正在关闭 event loop。")
             loop.close()
 
-        # 同步列印結果
-        filename = os.path.basename(out_file)
-        print(f"+ 已下載並儲存：{filename}（{size_bytes/1024/1024:.2f} MB）")
-        print(f"  來源 URL：{actual_url}")
+        # 如果下载成功，才打印文件信息
+        if 'actual_url' in locals() and 'size_bytes' in locals() and size_bytes and size_bytes > 0:
+            filename = os.path.basename(out_file)
+            print(f"+ 已下载并保存：{filename}（{size_bytes/1024/1024:.2f} MB）")
+            print(f"  来源 URL：{actual_url}")
+        else:
+            print("[DEBUG] 未下载任何文件，请检查上述错误日志。")
 
     def __del__(self):
         print("[DEBUG] GenericBingeHandler.__del__()：析構方法被呼叫。")
