@@ -27,7 +27,9 @@ class BahamutHandler(StreamHandler):
 
     async def init_browser(self):
         if not self.page:
-            context = await BrowserManager.init()
+            print("[DEBUG] 呼叫 BrowserManager.init() 之前")
+            self.context = await BrowserManager.init()
+            print("[DEBUG] context 取得成功，建立新 page 中...")
             self.page = await context.new_page()
             print("[DEBUG] 已開啟新 page")
 

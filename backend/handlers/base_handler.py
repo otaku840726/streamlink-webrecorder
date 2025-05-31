@@ -19,25 +19,30 @@ class BrowserManager:
     _playwright = None
     _context: BrowserContext = None
     _lock = asyncio.Lock()
+    _init_task = None
 
     @classmethod
     async def init(cls, user_data_dir="./playwright", headless=False):
+        print("[BrowserManager] init() called")
         async with cls._lock:
             if cls._context:
                 return cls._context
+            if cls._init_task:
+                return await cls._init_task
 
-            if cls._playwright is None:
+            async def _do_init():
                 cls._playwright = await async_playwright().start()
+                cls._context = await cls._playwright.firefox.launch_persistent_context(
+                    user_data_dir=user_data_dir,
+                    headless=headless,
+                    accept_downloads=True,
+                    viewport={"width": 1280, "height": 800},
+                )
+                print("[BrowserManager] Persistent context 啟動完成。")
+                return cls._context
 
-            cls._context = await cls._playwright.firefox.launch_persistent_context(
-                user_data_dir=user_data_dir,
-                headless=headless,
-                accept_downloads=True,
-                viewport={"width": 1280, "height": 800},
-            )
-
-            print("[BrowserManager] Persistent context 啟動完成。")
-            return cls._context
+            cls._init_task = asyncio.create_task(_do_init())
+            return await cls._init_task
 
     @classmethod
     async def close(cls):
