@@ -304,7 +304,7 @@ class GenericBingeHandler(StreamHandler):
             for sel in download_selectors:
                 try:
                     print(f"[DEBUG] 嘗試尋找下載按鈕 selector: '{sel}'")
-                    button = await page.query_selector(sel)
+                    button =  await page.wait_for_selector(sel, timeout=10000)
                     if button:
                         print(f"[DEBUG] 找到下載按鈕 ({sel})！")
                         break
