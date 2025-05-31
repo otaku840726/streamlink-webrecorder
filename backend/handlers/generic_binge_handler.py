@@ -6,13 +6,12 @@ import urllib.parse
 from bs4 import BeautifulSoup
 from datetime import datetime
 from handlers.base_handler import StreamHandler
+from playwright.async_api import async_playwright, Page, BrowserContext
 import asyncio
 import multiprocessing
 from subprocess import PIPE
 import time
 import shutil
-from pathlib import Path
-from playwright.async_api import async_playwright, Page, Browser, BrowserContext, Download
 
 class GenericBingeHandler(StreamHandler):
     def __init__(self):
@@ -22,33 +21,25 @@ class GenericBingeHandler(StreamHandler):
         self.page = None
 
     async def init_browser(self):
-        """
-        不在本地啟動瀏覽器，而是連到 Browserless 提供的 WebSocket 端點。
-        這裡假設環境變數 BROWSERLESS_WS_ENDPOINT 已經設好，格式類似：
-          - wss://chrome.browserless.io?token=YOUR_TOKEN
-          - ws://localhost:3000/playwright       (視你架的映像而定)
-
-        因為 browserless.io 預設會以 CDP （Chrome DevTools Protocol）對外服務，所以要使用
-        playwright.chromium.connect_over_cdp() 而非 playwright.chromium.launch()。
-        """
         if not self.playwright:
             self.playwright = await async_playwright().start()
+            
+            self.browser = await self.playwright.firefox.launch_persistent_context(
+                    user_data_dir="/root/.config/chromium",
+                    headless=False,
+                    accept_downloads=True,
+                    viewport={"width": 1280, "height": 800},
+                )
 
-            # 取得 env 裡的 WebSocket endpoint
-            ws_endpoint = os.getenv("BROWSERLESS_WS_ENDPOINT") if os.getenv("BROWSERLESS_WS_ENDPOINT") else 'ws://localhost:3005'
-            if not ws_endpoint:
-                raise RuntimeError("環境變數 BROWSERLESS_WS_ENDPOINT 尚未設定")
+            # system_firefox = shutil.which("firefox")
+            # if not system_firefox:
+            #     raise RuntimeError("系統上找不到 firefox，可先安裝或指定正確路徑")
+            # self.browser = await self.playwright.firefox.launch(
+            #     headless=False,
+            #     executable_path=system_firefox
+            # )
 
-            # 連到遠端 CDP，取得 Browser 實例
-            self.browser = await self.playwright.chromium.connect_over_cdp(
-                ws_endpoint
-            )
-            # 在同一個 瀏覽器上下文 裡新開一個分頁／頁籤
-            # 如果需要「persistent context」（保留 cookie/session），browserless 也會支援
-            context: BrowserContext = await self.browser.new_context(
-                accept_downloads=True  # 確保啟動下載功能
-            )
-            self.page = await context.new_page()
+            self.page = await self.browser.new_page()
 
     async def close_browser(self):
         """
