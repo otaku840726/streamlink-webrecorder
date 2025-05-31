@@ -441,12 +441,14 @@ def record_stream(task):
             # --- 自動轉成 MP4 --- (統一使用 ts_to_mp4 函數)
             if os.path.exists(out_file):
                 # 標記已錄
+                print(f"[DEBUG] 0001")
                 recorded.add(u)
                 with open(meta_file, 'w', encoding='utf-8') as mf:
                     json.dump(list(recorded), mf, ensure_ascii=False, indent=2)
 
                 # 錄製完成後，生成最終的完整縮圖集
                 generate_thumbnail(out_file) # 使用原始的 generate_thumbnail 生成完整縮圖
+                print(f"[DEBUG] 0002")
                 # 使用任務中定義的預設品質，如果沒有則使用 'high'
                 quality_to_use = task.default_conversion_quality if task.default_conversion_quality else "high"
                 if out_file.endswith(".ts"):
@@ -461,6 +463,7 @@ def record_stream(task):
             else:
                 write_log(task.id, "error", f"ERROR: {main_line}")
     except Exception as e:
+        print(f"[DEBUG] 0003 {e}")
         write_log(task.id, "error", f"EXCEPTION: {str(e)}")
     finally:
         # ========== 錄影結束自動移除進程 ==========
@@ -475,6 +478,7 @@ def record_stream(task):
         # 只有在 try 區塊中沒有觸發轉碼，並且文件存在時才觸發
         if not conversion_triggered and os.path.exists(out_file):
             generate_thumbnail(out_file) # 確保即使錄製失敗也有縮圖
+            print(f"[DEBUG] 0004")
             # 使用任務中定義的預設品質，如果沒有則使用 'high'
             quality_to_use = task.default_conversion_quality if task.default_conversion_quality else "high"
             if out_file.endswith(".ts"): 
