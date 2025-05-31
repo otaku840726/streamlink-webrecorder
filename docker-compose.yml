@@ -19,7 +19,7 @@ services:
 #       # - ./ms-playwright:/root/.cache/ms-playwright
 #       - ./chromium:/root/.config/chromium
 
-    restart: unless-stopped
+    # restart: unless-stopped
 
   frontend:
     build: ./frontend
