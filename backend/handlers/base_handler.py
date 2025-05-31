@@ -16,11 +16,11 @@ class StreamHandler(ABC):
     @abstractmethod
     def parse_urls(self, start_url: str) -> list[str]:
         """解析起始 URL，返回 m3u8 連結列表"""
-        return start_url
+        pass
 
     @abstractmethod
     def get_new_url(self, urls: str, records: set[str]):
-        return urls[0]
+        pass
 
     @abstractmethod
     def get_final_url(self, episode_url: str):
@@ -28,11 +28,11 @@ class StreamHandler(ABC):
         根據選中的 episode_url 做進一步處理，取得最終要給 build_cmd 的 url
         預設直接回傳 episode_url，子類可覆寫此方法
         """
-        return episode_url
+        pass
 
     @abstractmethod
     def get_ext(self):
-        return "ts"
+        pass
 
     @abstractmethod
     def build_cmd(self, url: str, task, out_file: str) -> list[str]:
@@ -68,7 +68,7 @@ class StreamHandler(ABC):
         return proc
 
 from handlers.streamlink_handler import StreamlinkHandler
-from handlers.bahamut_handler import BahamutHandler
+# from handlers.bahamut_handler import BahamutHandler
 from handlers.anime1_handler import Anime1Handler
 
 def get_handler(task) -> StreamHandler:
