@@ -19,6 +19,7 @@ class BrowserManager:
     _playwright = None
     _context: BrowserContext = None
     _lock = asyncio.Lock()
+    _page_lock = asyncio.Lock()  # 新增這個鎖
     _init_task = None
 
     @classmethod
@@ -44,6 +45,13 @@ class BrowserManager:
             cls._init_task = asyncio.create_task(_do_init())
             return await cls._init_task
 
+    @classmethod
+    async def new_page(cls):
+        context = await cls.init()
+        async with cls._page_lock:
+            print("[BrowserManager] 建立新 page 中...")
+            return await context.new_page()
+            
     @classmethod
     async def close(cls):
         if cls._context:

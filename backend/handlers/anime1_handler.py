@@ -25,14 +25,10 @@ class Anime1Handler(StreamHandler):
         super().__init__()
         print("[DEBUG] Anime1Handler.__init__(): 初始化 Handler")
         self.page = None
-        self.context = None
 
     async def init_browser(self):
         if not self.page:
-            print("[DEBUG] 呼叫 BrowserManager.init() 之前")
-            self.context = await BrowserManager.init()
-            print("[DEBUG] context 取得成功，建立新 page 中...")
-            self.page = await self.context.new_page()
+            self.page = await BrowserManager.new_page()
             print("[DEBUG] 已開啟新 page")
 
     async def close_browser(self):
@@ -309,7 +305,7 @@ class Anime1Handler(StreamHandler):
             video_domain = f"{parsed.scheme}://{parsed.netloc}"
             try:
                 # domain 必須與 video_url 相同（或更高層級）
-                cookies = await self.context.cookies(actual_mp4_url)
+                cookies = await self.page.context.cookies(actual_mp4_url)
                 # cookies 會是 list of dict{"name", "value", "domain", …}
                 cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
                 print(f"[DEBUG] 取得 {len(cookies)} 個 cookies: {cookie_header}")
