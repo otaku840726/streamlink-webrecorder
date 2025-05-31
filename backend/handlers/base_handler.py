@@ -32,7 +32,7 @@ class BrowserManager:
 
             async def _do_init():
                 cls._playwright = await async_playwright().start()
-                cls._context = await cls._playwright.firefox.launch_persistent_context(
+                cls._context = await cls._playwright.chromium.launch_persistent_context(
                     user_data_dir=user_data_dir,
                     headless=headless,
                     accept_downloads=True,
