@@ -14,6 +14,7 @@ import time
 import shutil
 from pathlib import Path
 from urllib.parse import urlparse
+from handlers.base_handler import BrowserManager
 
 
 @register_handler(r"^https?:\/\/(?:www\.)?ani\.gamer\.com\.tw.*")
