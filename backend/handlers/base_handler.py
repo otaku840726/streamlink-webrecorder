@@ -4,10 +4,6 @@ import multiprocessing
 from subprocess import PIPE
 import subprocess
         
-from handlers.streamlink_handler import StreamlinkHandler
-from handlers.bahamut_handler import BahamutHandler
-from handlers.anime1_handler import Anime1Handler
-
 _registry = []
 
 def register_handler(pattern):
@@ -70,6 +66,10 @@ class StreamHandler(ABC):
         proc.terminate = lambda: terminated.set()
         proc.start()
         return proc
+
+from handlers.streamlink_handler import StreamlinkHandler
+from handlers.bahamut_handler import BahamutHandler
+from handlers.anime1_handler import Anime1Handler
 
 def get_handler(task) -> StreamHandler:
     # 依 tool 選擇預設 handler
