@@ -239,13 +239,13 @@ class GenericBingeHandler(StreamHandler):
             print("[DEBUG] 执行 page.evaluate() 读取 video.src ...")
             try:
                 actual_mp4_url = await page.evaluate(
-                    """() => {
+                    """(() => {
                         const vid = document.querySelector("video");
                         if (vid && vid.src) {
                             return vid.src;
                         }
                         return "";
-                    }()"""
+                    })()"""
                 )
                 print(f"[DEBUG] 从 DOM 取得 actual_mp4_url = '{actual_mp4_url}'")
             except Exception as e:
