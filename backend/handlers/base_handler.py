@@ -1,5 +1,8 @@
 import re
 from abc import ABC, abstractmethod
+import multiprocessing
+from subprocess import PIPE
+import subprocess
 
 _registry = []
 
@@ -29,9 +32,36 @@ class StreamHandler(ABC):
 
     @abstractmethod
     def build_cmd(self, url: str, task, out_file: str) -> list[str]:
-        """根據單一 m3u8 URL、任務資訊與輸出檔案路徑，返回執行命令"""
+        """舊的命令列介面，為了向後相容而保留"""
         pass
 
+    @abstractmethod
+    def build_method(self, url: str, task, out_file: str):
+        """建構錄影方法，回傳一個可被 multiprocessing.Process 執行的函數"""
+        pass
+
+    def start_recording(self, url: str, task, out_file: str):
+        """統一的錄影啟動介面，優先使用 build_cmd"""
+        cmd = self.build_cmd(url, task, out_file)
+        if cmd:
+            return subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+        
+        # 如果沒有 cmd 才使用 build_method
+        terminated = multiprocessing.Event()
+        proc = multiprocessing.Process(
+            target=self.build_method(url, task, out_file),
+            args=(terminated,),
+            daemon=True
+        )
+        proc.stdout = PIPE
+        proc.stderr = PIPE
+        proc.terminate = lambda: terminated.set()
+        proc.start()
+        return proc
 
 def get_handler(task) -> StreamHandler:
     # 先匹配專屬 handler

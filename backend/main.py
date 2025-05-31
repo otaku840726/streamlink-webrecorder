@@ -416,8 +416,8 @@ def record_stream(task):
     nowstr = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_file = os.path.join(save_path, f"{task.name}_{nowstr}.ts")
 
-    # 透過 handler 生成具體指令
-    base_cmd = handler.build_cmd(handler.get_final_url(u), task, out_file)
+    # 使用統一的介面啟動錄影
+    proc = handler.start_recording(handler.get_final_url(u), task, out_file)
 
     write_log(task.id, "start", f"CMD: {' '.join(base_cmd)}")
     proc = None

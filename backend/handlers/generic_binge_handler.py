@@ -8,6 +8,9 @@ from datetime import datetime
 from handlers.base_handler import StreamHandler
 from playwright.async_api import async_playwright
 import asyncio
+import multiprocessing
+from subprocess import PIPE
+import time
 
 class GenericBingeHandler(StreamHandler):
     def __init__(self):
@@ -19,7 +22,11 @@ class GenericBingeHandler(StreamHandler):
     async def init_browser(self):
         if not self.playwright:
             self.playwright = await async_playwright().start()
-            self.browser = await self.playwright.chromium.launch(headless=True)
+            self.browser = await self.playwright.chromium.launch_persistent_context(
+                    user_data_dir="/root/.config/chromium",
+                    headless=True,
+                    accept_downloads=True
+                )
             self.page = await self.browser.new_page()
 
     async def close_browser(self):
@@ -91,13 +98,76 @@ class GenericBingeHandler(StreamHandler):
             await self.close_browser()
 
     def get_final_url(self, episode_url: str):
+        return episode_url
+        # loop = asyncio.new_event_loop()
+        # asyncio.set_event_loop(loop)
+        # try:
+        #     return loop.run_until_complete(self.get_video_src_async(episode_url))
+        # finally:
+        #     loop.close()
+
+    def build_cmd(self, url: str, task, out_file: str) -> list[str]:
+        """不使用命令列模式"""
+        return None
+
+    def build_method(self, url: str, task, out_file: str):
+        """
+        同步（blocking）版：
+        1. 在內部建立一個 asyncio event loop，執行 Playwright 協程。
+        2. 協程內容：初始化浏览器、前往 url 點擊播放、攔截對 video_src 發出的 request，取得它的 headers。
+        3. 關閉 Playwright 之後，用 requests.get(...) 搭配攔截到的 headers 同步下載影片。
+        """
+
+        async def _fetch_video_request():
+            # 初始化（或重用）Playwright persistent context
+            await self.init_browser()
+
+            try:
+                # 前往目標頁面並點擊播放
+                await self.page.goto(url, wait_until="load")
+                await self.page.click(".vjs-big-play-centered")
+
+                # 等待 <video> element 有 src 屬性
+                await self.page.wait_for_function(
+                    "() => !!(document.querySelector('video') && document.querySelector('video').src)"
+                )
+                video_src = await self.page.evaluate("() => document.querySelector('video').src")
+
+                # 攔截瀏覽器對 video_src 發出的那筆 request
+                video_request = await self.page.wait_for_request(lambda req: req.url == video_src)
+                req_headers = video_request.headers
+
+                return video_src, req_headers
+            finally:
+                # 一定要關閉瀏覽器 context
+                await self.close_browser()
+
+        # 1. 建立一個新的 event loop，執行上面那段協程
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(self.get_video_src_async(episode_url))
+            video_src, req_headers = loop.run_until_complete(_fetch_video_request())
         finally:
             loop.close()
 
+        # 2. 用 requests.get 同步下載，用攔截到的 headers 保持與瀏覽器完全一致
+        r = requests.get(video_src, headers=req_headers, stream=True)
+        content_length = int(r.headers.get("content-length", 0))
+
+        if r.status_code == 200:
+            file_name = os.path.basename(out_file)
+            print(f"+ 開始下載：{file_name}（{content_length/1024/1024:.2f} MB）")
+
+            with open(out_file, "wb") as f:
+                for chunk in r.iter_content(chunk_size=10240):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    f.flush()
+
+            print(f"  下載完畢：{out_file}")
+        else:
+            print(f"- 下載失敗：HTTP {r.status_code}")
     def __del__(self):
         if self.browser:
             loop = asyncio.new_event_loop()
@@ -106,17 +176,3 @@ class GenericBingeHandler(StreamHandler):
                 loop.run_until_complete(self.close_browser())
             finally:
                 loop.close()
-
-    def build_cmd(self, url: str, task, out_file: str) -> list[str]:
-        print(f"[DEBUG] build_cmd called with url={url}, out_file={out_file}")
-        # 這裡用 streamlink 或 ffmpeg 取決於你註冊的 handler
-        # 下面示範 Streamlink 模式
-        cmd = [
-            'streamlink',
-            *(task.params.split() if task.params else []),
-            url,           # 注意要用這裡傳入的 url
-            'best',
-            '-o', out_file
-        ]
-        print(f"[DEBUG] Generated command: {' '.join(cmd)}")
-        return cmd
