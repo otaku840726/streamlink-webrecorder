@@ -11,6 +11,7 @@ import asyncio
 import multiprocessing
 from subprocess import PIPE
 import time
+import shutil
 
 class GenericBingeHandler(StreamHandler):
     def __init__(self):
@@ -22,11 +23,21 @@ class GenericBingeHandler(StreamHandler):
     async def init_browser(self):
         if not self.playwright:
             self.playwright = await async_playwright().start()
-            self.browser = await self.playwright.chromium.launch_persistent_context(
-                    user_data_dir="/root/.config/chromium",
-                    headless=False,
-                    accept_downloads=True
-                )
+            
+            # self.browser = await self.playwright.chromium.launch_persistent_context(
+            #         user_data_dir="/root/.config/chromium",
+            #         headless=False,
+            #         accept_downloads=True
+            #     )
+
+            system_firefox = shutil.which("firefox")
+            if not system_firefox:
+                raise RuntimeError("系統上找不到 firefox，可先安裝或指定正確路徑")
+            self.browser = await self.playwright.firefox.launch(
+                headless=False,
+                executable_path=system_firefox
+            )
+            
             self.page = await self.browser.new_page()
 
     async def close_browser(self):
