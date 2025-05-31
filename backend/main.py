@@ -45,7 +45,7 @@ scheduler.start()
 
 @app.on_event("startup")
 async def startup_event():
-    await BrowserManager.init(user_data_dir="./playwright_data", headless=False)
+    await BrowserManager.init(user_data_dir="./playwright_data", headless=True)
 
 @app.on_event("shutdown")
 async def shutdown_event():
