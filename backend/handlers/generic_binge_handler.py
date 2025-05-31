@@ -155,6 +155,9 @@ class GenericBingeHandler(StreamHandler):
         result_urls = [episodes[n] for n in sorted_nums]
         print(f"[DEBUG] 回傳 URL 列表: {result_urls}")
         return result_urls
+        
+    def get_ext(self):
+        return "mp4"
 
     def parse_urls(self, start_url: str) -> list[str]:
         print(f"[DEBUG] parse_urls() called with start_url = {start_url}")

@@ -31,6 +31,10 @@ class StreamHandler(ABC):
         pass     
 
     @abstractmethod
+    def get_ext(self):
+        pass    
+
+    @abstractmethod
     def build_cmd(self, url: str, task, out_file: str) -> list[str]:
         """舊的命令列介面，為了向後相容而保留"""
         pass
