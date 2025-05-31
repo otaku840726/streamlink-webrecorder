@@ -16,7 +16,7 @@ services:
       - ./recordings:/recordings
       - ./hls:/hls
       - ./thumbnails:/thumbnails
-      - ./ms-playwright:/root/.cache/ms-playwright
+      # - ./ms-playwright:/root/.cache/ms-playwright
       - ./chromium:/root/.config/chromium
 
     restart: unless-stopped
