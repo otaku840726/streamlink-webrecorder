@@ -3,6 +3,10 @@ from abc import ABC, abstractmethod
 import multiprocessing
 from subprocess import PIPE
 import subprocess
+        
+from handlers.streamlink_handler import StreamlinkHandler
+from handlers.bahamut_handler import BahamutHandler
+from handlers.anime1_handler import Anime1Handler
 
 _registry = []
 
@@ -76,8 +80,5 @@ def get_handler(task) -> StreamHandler:
             if pattern.search(task.url):
                 print(f"[DEBUG] 匹配到專屬 handler：{handler} for {task.url}")
                 return handler
-                return handler
-        
-    from handlers.streamlink_handler import StreamlinkHandler
     print(f"[DEBUG] 使用預設 handler：StreamlinkHandler for {task.url}")
     return StreamlinkHandler()
