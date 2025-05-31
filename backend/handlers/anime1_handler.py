@@ -15,7 +15,9 @@ import shutil
 from pathlib import Path
 from urllib.parse import urlparse
 
-class GenericBingeHandler(StreamHandler):
+
+@register_handler(r"^https?://(?:www\.)?anime1\.me/.*")
+class Anime1Handler(StreamHandler):
     def __init__(self):
         super().__init__()
         print("[DEBUG] GenericBingeHandler.__init__(): 初始化 Handler")
@@ -155,7 +157,7 @@ class GenericBingeHandler(StreamHandler):
         result_urls = [episodes[n] for n in sorted_nums]
         print(f"[DEBUG] 回傳 URL 列表: {result_urls}")
         return result_urls
-        
+
     def get_ext(self):
         return "mp4"
 

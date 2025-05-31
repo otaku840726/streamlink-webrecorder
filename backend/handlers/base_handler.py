@@ -68,14 +68,12 @@ class StreamHandler(ABC):
         return proc
 
 def get_handler(task) -> StreamHandler:
-    # 先匹配專屬 handler
-    for pattern, handler in _registry:
-        if pattern.search(task.url):
-            return handler
     # 依 tool 選擇預設 handler
     if task.tool == 'custom':
-        from handlers.generic_binge_handler import GenericBingeHandler
-        return GenericBingeHandler()
+        # 先匹配專屬 handler
+        for pattern, handler in _registry:
+            if pattern.search(task.url):
+                return handler
         
     from handlers.streamlink_handler import StreamlinkHandler
     return StreamlinkHandler()
