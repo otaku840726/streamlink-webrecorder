@@ -74,7 +74,7 @@ class BrowserManager:
         return context
 
     @classmethod
-    async def new_page(cls, context_id: str, target_url: str, headless: bool = True):
+    async def new_page(cls, context_id: str, target_url: str, headless: bool = False):
         print(f"[BrowserManager] 開啟 {target_url} for {context_id} (persistent={cls._persistent_mode})")
         async with cls._semaphore:
             context = await cls.get_context(context_id, headless=headless)
