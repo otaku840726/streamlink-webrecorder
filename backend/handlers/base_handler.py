@@ -29,12 +29,13 @@ class BrowserManager:
     _storage_path = "auth_storage/state.json"
     _user_data_dir = "auth_storage/user_data"
     _headless = False
-    _lock = asyncio.Lock()  # 🔒 加鎖以防 race condition
+    _lock = asyncio.Lock()
+    _inter_task_delay = 10.0  # 每個任務之間的延遲秒數
 
     @classmethod
     async def init(cls, use_persistent=False):
         async with cls._lock:
-            if cls._browser:  # 已初始化
+            if cls._browser:
                 return cls._browser
 
             playwright = await async_playwright().start()
@@ -59,6 +60,10 @@ class BrowserManager:
             if not cls._context:
                 await cls.init()
             page = await cls._context.new_page()
+
+            # 加入操作後延遲
+            await asyncio.sleep(cls._inter_task_delay)
+
         if target_url:
             await page.goto(target_url)
         return page
@@ -79,6 +84,7 @@ class BrowserManager:
                 await cls._browser.close()
             cls._browser = None
             cls._context = None
+
 
 
 class StreamHandler(ABC):
