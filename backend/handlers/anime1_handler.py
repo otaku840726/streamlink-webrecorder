@@ -18,11 +18,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 from handlers.base_handler import BrowserManager
 
-
+CONTEXT_ID = "anime1"
 
 @register_handler(r"^https?:\/\/(?:www\.)?anime1\.me.*")
 class Anime1Handler(StreamHandler):
-    CONTEXT_ID = "anime1"
     def __init__(self):
         super().__init__()
         print("[DEBUG] Anime1Handler.__init__(): 初始化 Handler")

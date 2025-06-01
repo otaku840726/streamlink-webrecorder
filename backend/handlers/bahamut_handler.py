@@ -16,10 +16,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 from handlers.base_handler import BrowserManager
 
+CONTEXT_ID = "bahamut"
 
 @register_handler(r"^https?:\/\/(?:www\.)?ani\.gamer\.com\.tw.*")
 class BahamutHandler(StreamHandler):
-    CONTEXT_ID = "bahamut"
     def __init__(self):
         super().__init__()
         print("[DEBUG] BahamutHandler.__init__(): 初始化 Handler")

@@ -22,6 +22,7 @@ import json
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
+STORAGE_PATH = "/playwright"
 
 class BrowserManager:
     _semaphore = asyncio.Semaphore(1)
@@ -30,7 +31,6 @@ class BrowserManager:
     _contexts: dict[str, BrowserContext] = {}
     _lock = asyncio.Lock()
     _persistent_mode = False
-    STORAGE_PATH = "/playwright"
 
     @classmethod
     async def init(cls, persistent: bool = False, headless: bool = True):
