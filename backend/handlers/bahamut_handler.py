@@ -26,7 +26,9 @@ class BahamutHandler(StreamHandler):
         self.context = None
 
     async def init_browser(self, target_url: str):
+        print(f"[DEBUG] init_browser() called with target_url = {target_url}")
         self.page, self.context = await BrowserManager.new_page(target_url)
+        print("[DEBUG] init_browser(): Playwright 已初始化。")
 
     async def close_browser(self):
         if self.page and self.context:
