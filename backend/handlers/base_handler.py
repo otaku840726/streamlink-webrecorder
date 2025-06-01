@@ -33,7 +33,7 @@ class BrowserManager:
     _persistent_mode = False
 
     @classmethod
-    async def init(cls, persistent: bool = False, headless: bool = True):
+    async def init(cls, persistent: bool = False, headless: bool = False):
         cls._persistent_mode = persistent
 
         async with cls._lock:
@@ -51,7 +51,7 @@ class BrowserManager:
                 )
 
     @classmethod
-    async def get_context(cls, context_id: str, headless: bool = True) -> BrowserContext:
+    async def get_context(cls, context_id: str, headless: bool = False) -> BrowserContext:
         print(f"[BrowserManager] get_context({context_id})")
         if context_id in cls._contexts:
             print(f"[BrowserManager] context 已存在：{context_id}")
