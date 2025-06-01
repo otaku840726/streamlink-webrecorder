@@ -34,47 +34,46 @@ class BrowserManager:
     _user_data_dir = "auth_storage/user_data"
     _headless = False
     _lock = asyncio.Lock()
-    _inter_task_delay = 1.0  # 每個任務延遲秒數
+    _inter_task_delay = 10.0  # 每個任務延遲秒數
 
     @classmethod
     async def init(cls, use_persistent=False):
-        async with cls._lock:
-            if cls._browser:
-                print("[BrowserManager] Browser 已初始化，略過")
-                return cls._browser
-            try:
-                print("[BrowserManager] 啟動 Playwright...")
-                cls._playwright = await async_playwright().start()
-                os.makedirs("auth_storage", exist_ok=True)
+        if cls._browser:
+            print("[BrowserManager] Browser 已初始化，略過")
+            return cls._browser
+        try:
+            print("[BrowserManager] 啟動 Playwright...")
+            cls._playwright = await async_playwright().start()
+            os.makedirs("auth_storage", exist_ok=True)
 
-                if use_persistent:
-                    print("[BrowserManager] 使用 persistent context 啟動瀏覽器")
-                    cls._context = await cls._playwright.chromium.launch_persistent_context(
-                        user_data_dir=cls._user_data_dir,
-                        headless=cls._headless,
-                    )
-                    cls._browser = cls._context.browser
+            if use_persistent:
+                print("[BrowserManager] 使用 persistent context 啟動瀏覽器")
+                cls._context = await cls._playwright.chromium.launch_persistent_context(
+                    user_data_dir=cls._user_data_dir,
+                    headless=cls._headless,
+                )
+                cls._browser = cls._context.browser
+            else:
+                print("[BrowserManager] 使用 ephemeral context 啟動瀏覽器")
+                cls._browser = await cls._playwright.chromium.launch(headless=cls._headless)
+                if os.path.exists(cls._storage_path):
+                    print(f"[BrowserManager] 載入已儲存的登入狀態: {cls._storage_path}")
+                    cls._context = await cls._browser.new_context(storage_state=cls._storage_path)
                 else:
-                    print("[BrowserManager] 使用 ephemeral context 啟動瀏覽器")
-                    cls._browser = await cls._playwright.chromium.launch(headless=cls._headless)
-                    if os.path.exists(cls._storage_path):
-                        print(f"[BrowserManager] 載入已儲存的登入狀態: {cls._storage_path}")
-                        cls._context = await cls._browser.new_context(storage_state=cls._storage_path)
-                    else:
-                        print("[BrowserManager] 尚未有登入狀態，建立新 context")
-                        cls._context = await cls._browser.new_context()
+                    print("[BrowserManager] 尚未有登入狀態，建立新 context")
+                    cls._context = await cls._browser.new_context()
 
-                print("[BrowserManager] 初始化完成")
-                return cls._browser
-            except Exception as e:
-                print(f"[BrowserManager][ERROR] 初始化瀏覽器時發生錯誤: {e}")
-                raise
+            print("[BrowserManager] 初始化完成")
+            return cls._browser
+        except Exception as e:
+            print(f"[BrowserManager][ERROR] 初始化瀏覽器時發生錯誤: {e}")
+            raise
 
     @classmethod
     async def new_page(cls, target_url: str = None) -> Page:
-        print("[BrowserManager] new_page 被呼叫 target_url: {target_url}")
+        print(f"[BrowserManager] new_page 被呼叫 target_url: {target_url}")
         async with cls._lock:
-            print("[BrowserManager] lock 獲得")
+            print(f"[BrowserManager] lock 獲得 target_url: {target_url}")
             try:
                 if not cls._context:
                     print("[BrowserManager] Context 尚未初始化，嘗試 init()")
