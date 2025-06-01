@@ -19,83 +19,66 @@ def register_handler(pattern):
 
 
 
+import os
+import asyncio
+from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+
 class BrowserManager:
-    _playwright = None
-    _browser: Optional[Browser] = None
-    _context: Optional[BrowserContext] = None
-    _semaphore = asyncio.Semaphore(1)  # 控制同時最多 3 個任務打開 Page
-    _user_data_dir = "/tmp/playwright-user-data-dir"
-    _cookie_path = Path(_user_data_dir) / "cookies.json"
+    _browser: Browser = None
+    _context: BrowserContext = None
+    _storage_path = "auth_storage/state.json"
+    _user_data_dir = "auth_storage/user_data"
+    _headless = False
+    _lock = asyncio.Lock()  # 🔒 加鎖以防 race condition
 
     @classmethod
-    async def init(cls, headless: bool = False) -> Browser:
-        if cls._browser:
+    async def init(cls, use_persistent=False):
+        async with cls._lock:
+            if cls._browser:  # 已初始化
+                return cls._browser
+
+            playwright = await async_playwright().start()
+            os.makedirs("auth_storage", exist_ok=True)
+
+            if use_persistent:
+                cls._context = await playwright.chromium.launch_persistent_context(
+                    user_data_dir=cls._user_data_dir,
+                    headless=cls._headless,
+                )
+                cls._browser = cls._context.browser
+            else:
+                cls._browser = await playwright.chromium.launch(headless=cls._headless)
+                cls._context = await cls._browser.new_context(
+                    storage_state=cls._storage_path if os.path.exists(cls._storage_path) else None
+                )
             return cls._browser
 
-        cls._playwright = await async_playwright().start()
-        cls._browser = await cls._playwright.firefox.launch_persistent_context(
-            cls._user_data_dir,
-            headless=headless,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
-        )
-        cls._context = cls._browser
-        print("[BrowserManager] Persistent context 啟動完成。")
-        return cls._browser
-
     @classmethod
-    async def new_page(cls, target_url: str) -> Page:
-        print(f"[BrowserManager] 準備開啟 {target_url}...")
-        async with cls._semaphore:  # 控制併發
-            print(f"[BrowserManager] cls._semaphore 獲取成功，準備開啟新的 page")
-            await cls.init()
-            print(f"[BrowserManager] init 完成")
+    async def new_page(cls, target_url: str = None) -> Page:
+        async with cls._lock:
+            if not cls._context:
+                await cls.init()
             page = await cls._context.new_page()
-            print(f"[BrowserManager] new_page 完成，開始導向 {target_url}")
-            try:
-                await cls._restore_cookies(cls._context, target_url)
-                await page.goto(target_url, timeout=15000, wait_until="domcontentloaded")
-                print(f"[BrowserManager] page.goto 完成: {target_url}")
-            except Exception as e:
-                print(f"[BrowserManager] page.goto 發生錯誤: {e}")
-                await page.close()
-                raise
-            return page
+        if target_url:
+            await page.goto(target_url)
+        return page
 
     @classmethod
-    async def _restore_cookies(cls, context: BrowserContext, target_url: str):
-        if cls._cookie_path.exists():
-            try:
-                with open(cls._cookie_path, "r") as f:
-                    cookies = json.load(f)
-                    await context.add_cookies(cookies)
-                    print("[BrowserManager] Cookies 還原完成")
-            except Exception as e:
-                print(f"[BrowserManager] 還原 cookies 失敗: {e}")
-
-    @classmethod
-    async def _save_cookies(cls):
-        if cls._context:
-            try:
-                cookies = await cls._context.cookies()
-                with open(cls._cookie_path, "w") as f:
-                    json.dump(cookies, f)
-                    print("[BrowserManager] Cookies 已儲存")
-            except Exception as e:
-                print(f"[BrowserManager] 儲存 cookies 失敗: {e}")
+    async def save_storage(cls):
+        async with cls._lock:
+            if cls._context and not cls._context.is_closed():
+                await cls._context.storage_state(path=cls._storage_path)
 
     @classmethod
     async def close(cls):
-        await cls._save_cookies()
-        if cls._browser:
-            await cls._browser.close()
+        async with cls._lock:
+            if cls._context and not cls._context.is_closed():
+                await cls.save_storage()
+                await cls._context.close()
+            if cls._browser:
+                await cls._browser.close()
             cls._browser = None
-        if cls._playwright:
-            await cls._playwright.stop()
-            cls._playwright = None
-        print("[BrowserManager] 瀏覽器已關閉")
-
-    def __del__(self):
-        print("[BrowserManager] __del__() 被觸發，請手動確保呼叫 close()")
+            cls._context = None
 
 
 class StreamHandler(ABC):
