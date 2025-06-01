@@ -43,9 +43,9 @@ app = FastAPI()
 scheduler = BackgroundScheduler()
 scheduler.start()
 
-@app.on_event("startup")
-async def startup_event():
-    await BrowserManager.init( )
+# @app.on_event("startup")
+# async def startup_event():
+    # await BrowserManager.init( )
 
 @app.on_event("shutdown")
 async def shutdown_event():

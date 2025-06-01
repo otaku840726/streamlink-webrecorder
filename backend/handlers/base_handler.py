@@ -28,8 +28,8 @@ import asyncio
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 class BrowserManager:
-    _browser: Browser = None
-    _context: BrowserContext = None
+    _browser = None
+    _context = None
     _storage_path = "auth_storage/state.json"
     _user_data_dir = "auth_storage/user_data"
     _headless = False
@@ -59,9 +59,11 @@ class BrowserManager:
                 if os.path.exists(cls._storage_path):
                     print(f"[BrowserManager] 載入已儲存的登入狀態: {cls._storage_path}")
                     cls._context = await cls._browser.new_context(storage_state=cls._storage_path)
+                    print("[BrowserManager] 載入已儲存的登入狀態完成")
                 else:
                     print("[BrowserManager] 尚未有登入狀態，建立新 context")
                     cls._context = await cls._browser.new_context()
+                    print("[BrowserManager] 建立新 context")
 
             print("[BrowserManager] 初始化完成")
             return cls._browser
