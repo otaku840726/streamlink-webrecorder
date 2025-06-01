@@ -75,7 +75,7 @@ class BrowserManager:
             storage_path = os.path.join(base_dir, "state.json")
             print(f"[BrowserManager] storage_path: {storage_path}")
             context = await cls._browser.new_context(
-                storage_state=storage_path
+                storage_state=storage_path if os.path.exists(storage_path) else None,
             )
             print(f"[BrowserManager] new_context 成功")
 
