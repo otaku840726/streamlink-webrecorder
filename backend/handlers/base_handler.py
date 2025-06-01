@@ -45,7 +45,7 @@ class BrowserManager:
                 return
 
             if cls._browser is None:
-                cls._browser = await cls._playwright.chromium.launch(
+                cls._browser = await cls._playwright.firefox.launch(
                     headless=headless,
                     args=["--no-sandbox", "--disable-dev-shm-usage"]
                 )
@@ -64,7 +64,7 @@ class BrowserManager:
 
         if cls._persistent_mode:
             print(f"[BrowserManager] persistent 模式，使用 launch_persistent_context")
-            context = await cls._playwright.chromium.launch_persistent_context(
+            context = await cls._playwright.firefox.launch_persistent_context(
                 user_data_dir=base_dir,
                 headless=headless,
                 args=["--no-sandbox", "--disable-dev-shm-usage"]
