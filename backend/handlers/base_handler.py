@@ -52,25 +52,35 @@ class BrowserManager:
 
     @classmethod
     async def get_context(cls, context_id: str, headless: bool = True) -> BrowserContext:
+        print(f"[BrowserManager] get_context({context_id})")
         if context_id in cls._contexts:
+            print(f"[BrowserManager] context 已存在：{context_id}")
             return cls._contexts[context_id]
 
+        print(f"[BrowserManager] context 不存在：{context_id}")
         base_dir = f"{STORAGE_PATH}/{context_id}"
         os.makedirs(base_dir, exist_ok=True)
+        print(f"[BrowserManager] base_dir: {base_dir}")
 
         if cls._persistent_mode:
+            print(f"[BrowserManager] persistent 模式，使用 launch_persistent_context")
             context = await cls._playwright.chromium.launch_persistent_context(
                 user_data_dir=base_dir,
                 headless=headless,
                 args=["--no-sandbox", "--disable-dev-shm-usage"]
             )
+            print(f"[BrowserManager] launch_persistent_context 成功")
         else:
+            print(f"[BrowserManager] 非 persistent 模式，使用 new_context")
             storage_path = os.path.join(base_dir, "state.json")
+            print(f"[BrowserManager] storage_path: {storage_path}")
             context = await cls._browser.new_context(
                 storage_state=storage_path if os.path.exists(storage_path) else None
             )
+            print(f"[BrowserManager] new_context 成功")
 
         cls._contexts[context_id] = context
+        print(f"[BrowserManager] context 已儲存：{context_id}")
         return context
 
     @classmethod
