@@ -77,10 +77,15 @@ class BrowserManager:
     async def new_page(cls, context_id: str, target_url: str, headless: bool = False):
         print(f"[BrowserManager] 開啟 {target_url} for {context_id} (persistent={cls._persistent_mode})")
         async with cls._semaphore:
+            print(f"[BrowserManager] semaphore acquired for {context_id}")
             context = await cls.get_context(context_id, headless=headless)
+            print(f"[BrowserManager] context acquired for {context_id}")
             page = await context.new_page()
+            print(f"[BrowserManager] page acquired for {context_id}")
             try:
+                print(f"[BrowserManager] 前往 {target_url}")
                 await page.goto(target_url, timeout=15000)
+                print(f"[BrowserManager] 前往 {target_url} 成功")
                 return page
             except Exception as e:
                 print(f"[BrowserManager] page.goto() 失敗: {e}")
