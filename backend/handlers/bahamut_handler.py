@@ -166,6 +166,7 @@ class BahamutHandler(StreamHandler):
         async def _parse_urls_async():
             print("[DEBUG] _parse_urls_async(): 開始執行，啟動 Playwright...")
             await self.init_browser(start_url)
+            print("[DEBUG] _parse_urls_async(): Playwright 已啟動。")
             page: Page = self.page
 
             try:

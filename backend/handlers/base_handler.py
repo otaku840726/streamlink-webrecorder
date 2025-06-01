@@ -72,7 +72,9 @@ class BrowserManager:
 
     @classmethod
     async def new_page(cls, target_url: str = None) -> Page:
+        print("[BrowserManager] new_page 被呼叫 target_url: {target_url}")
         async with cls._lock:
+            print("[BrowserManager] lock 獲得")
             try:
                 if not cls._context:
                     print("[BrowserManager] Context 尚未初始化，嘗試 init()")
