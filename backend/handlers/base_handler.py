@@ -6,9 +6,7 @@ import subprocess
 import os, json, asyncio
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext
-from pathlib import Path
-from typing import Optional
-
+        
 _registry = []
 
 def register_handler(pattern):
@@ -18,125 +16,114 @@ def register_handler(pattern):
     return deco
 
 
-
-import os
 import asyncio
+import os
+import json
+from urllib.parse import urlparse
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
-import os
-import asyncio
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 class BrowserManager:
-    _browser = None
-    _context = None
-    _storage_path = "auth_storage/state.json"
-    _user_data_dir = "auth_storage/user_data"
-    _headless = False
+    _semaphore = asyncio.Semaphore(1)
+    _playwright = None
+    _browser: Browser = None
+    _contexts: dict[str, BrowserContext] = {}
     _lock = asyncio.Lock()
-    _inter_task_delay = 10.0  # 每個任務延遲秒數
+    _persistent_mode = False
+    STORAGE_PATH = "/playwright"
 
     @classmethod
-    async def init(cls, use_persistent=False):
-        if cls._browser:
-            print("[BrowserManager] Browser 已初始化，略過")
-            return cls._browser
-        try:
-            print("[BrowserManager] 啟動 Playwright...")
-            cls._playwright = await async_playwright().start()
-            os.makedirs("auth_storage", exist_ok=True)
+    async def init(cls, persistent: bool = False, headless: bool = True):
+        cls._persistent_mode = persistent
 
-            if use_persistent:
-                print("[BrowserManager] 使用 persistent context 啟動瀏覽器")
-                cls._context = await cls._playwright.chromium.launch_persistent_context(
-                    user_data_dir=cls._user_data_dir,
-                    headless=cls._headless,
-                )
-                cls._browser = cls._context.browser
-            else:
-                print("[BrowserManager] 使用 ephemeral context 啟動瀏覽器")
-                cls._browser = await cls._playwright.chromium.launch(headless=cls._headless)
-                if os.path.exists(cls._storage_path):
-                    print(f"[BrowserManager] 載入已儲存的登入狀態: {cls._storage_path}")
-                    cls._context = await cls._browser.new_context(storage_state=cls._storage_path)
-                    print("[BrowserManager] 載入已儲存的登入狀態完成")
-                else:
-                    print("[BrowserManager] 尚未有登入狀態，建立新 context")
-                    cls._context = await cls._browser.new_context()
-                    print("[BrowserManager] 建立新 context")
-
-            print("[BrowserManager] 初始化完成")
-            return cls._browser
-        except Exception as e:
-            print(f"[BrowserManager][ERROR] 初始化瀏覽器時發生錯誤: {e}")
-            raise
-
-    @classmethod
-    async def new_page(cls, target_url: str = None) -> Page:
-        print(f"[BrowserManager] new_page 被呼叫 target_url: {target_url}")
         async with cls._lock:
-            print(f"[BrowserManager] lock 獲得 target_url: {target_url}")
+            if cls._playwright is None:
+                cls._playwright = await async_playwright().start()
+
+            if persistent:
+                # 使用 persistent_context -> 不需要 browser 物件
+                return
+
+            if cls._browser is None:
+                cls._browser = await cls._playwright.chromium.launch(
+                    headless=headless,
+                    args=["--no-sandbox", "--disable-dev-shm-usage"]
+                )
+
+    @classmethod
+    async def get_context(cls, context_id: str, headless: bool = True) -> BrowserContext:
+        if context_id in cls._contexts:
+            return cls._contexts[context_id]
+
+        base_dir = f"{STORAGE_PATH}/{context_id}"
+        os.makedirs(base_dir, exist_ok=True)
+
+        if cls._persistent_mode:
+            context = await cls._playwright.chromium.launch_persistent_context(
+                user_data_dir=base_dir,
+                headless=headless,
+                args=["--no-sandbox", "--disable-dev-shm-usage"]
+            )
+        else:
+            storage_path = os.path.join(base_dir, "state.json")
+            context = await cls._browser.new_context(
+                storage_state=storage_path if os.path.exists(storage_path) else None
+            )
+
+        cls._contexts[context_id] = context
+        return context
+
+    @classmethod
+    async def new_page(cls, context_id: str, target_url: str, headless: bool = True):
+        print(f"[BrowserManager] 開啟 {target_url} for {context_id} (persistent={cls._persistent_mode})")
+        async with cls._semaphore:
+            context = await cls.get_context(context_id, headless=headless)
+            page = await context.new_page()
             try:
-                if not cls._context:
-                    print("[BrowserManager] Context 尚未初始化，嘗試 init()")
-                    await cls.init()
-
-                print("[BrowserManager] 建立新頁面...")
-                page = await cls._context.new_page()
-                print("[BrowserManager] 頁面建立完成")
-
-                if cls._inter_task_delay > 0:
-                    print(f"[BrowserManager] 延遲 {cls._inter_task_delay} 秒以避免併發過快")
-                    await asyncio.sleep(cls._inter_task_delay)
-
-                if target_url:
-                    print(f"[BrowserManager] 開啟目標網址: {target_url}")
-                    await page.goto(target_url)
-
+                await page.goto(target_url, timeout=15000)
                 return page
             except Exception as e:
-                print(f"[BrowserManager][ERROR] 建立頁面時失敗: {e}")
+                print(f"[BrowserManager] page.goto() 失敗: {e}")
+                await page.close()
                 raise
 
     @classmethod
-    async def save_storage(cls):
-        async with cls._lock:
-            try:
-                if cls._context and not cls._context.is_closed():
-                    print(f"[BrowserManager] 儲存登入狀態到 {cls._storage_path}...")
-                    await cls._context.storage_state(path=cls._storage_path)
-                    print("[BrowserManager] 登入狀態儲存完成")
-                else:
-                    print("[BrowserManager] Context 已關閉，略過儲存")
-            except Exception as e:
-                print(f"[BrowserManager][ERROR] 儲存登入狀態時發生錯誤: {e}")
+    async def save_session(cls, context_id: str):
+        if cls._persistent_mode:
+            print(f"[BrowserManager] persistent 模式不需手動 save_session")
+            return
+
+        context = cls._contexts.get(context_id)
+        if not context:
+            print(f"[BrowserManager] 無對應 context: {context_id}")
+            return
+
+        storage_path = f"{STORAGE_PATH}/{context_id}/state.json"
+        await context.storage_state(path=storage_path)
+        print(f"[BrowserManager] 儲存狀態至 {storage_path}")
 
     @classmethod
     async def close(cls):
-        async with cls._lock:
-            try:
-                print("[BrowserManager] 關閉中...")
-                if cls._context and not cls._context.is_closed():
-                    await cls.save_storage()
-                    await cls._context.close()
-                    print("[BrowserManager] Context 已關閉")
-                else:
-                    print("[BrowserManager] Context 已關閉或不存在")
+        if not cls._persistent_mode:
+            for context_id, context in cls._contexts.items():
+                try:
+                    storage_path = f"{STORAGE_PATH}/{context_id}/state.json"
+                    await context.storage_state(path=storage_path)
+                    print(f"[BrowserManager] 自動儲存 {context_id} 狀態至 {storage_path}")
+                except Exception as e:
+                    print(f"[BrowserManager] 儲存 {context_id} 狀態失敗: {e}")
 
-                if cls._browser:
-                    await cls._browser.close()
-                    print("[BrowserManager] Browser 已關閉")
+        for context in cls._contexts.values():
+            await context.close()
+        cls._contexts.clear()
 
-                cls._browser = None
-                cls._context = None
-            except Exception as e:
-                print(f"[BrowserManager][ERROR] 關閉瀏覽器時發生錯誤: {e}")
+        if cls._browser:
+            await cls._browser.close()
+            cls._browser = None
 
-    @classmethod
-    def set_inter_task_delay(cls, seconds: float):
-        print(f"[BrowserManager] 設定任務間延遲為 {seconds} 秒")
-        cls._inter_task_delay = seconds
-
+        if cls._playwright:
+            await cls._playwright.stop()
+            cls._playwright = None
 
 
 

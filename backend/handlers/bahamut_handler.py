@@ -19,24 +19,22 @@ from handlers.base_handler import BrowserManager
 
 @register_handler(r"^https?:\/\/(?:www\.)?ani\.gamer\.com\.tw.*")
 class BahamutHandler(StreamHandler):
+    CONTEXT_ID = "bahamut"
     def __init__(self):
         super().__init__()
         print("[DEBUG] BahamutHandler.__init__(): 初始化 Handler")
         self.page = None
-        self.context = None
 
     async def init_browser(self, target_url: str):
         print(f"[DEBUG] init_browser() called with target_url = {target_url}")
-        self.page, self.context = await BrowserManager.new_page(target_url)
+        self.page = await BrowserManager.new_page(CONTEXT_ID, target_url)
         print("[DEBUG] init_browser(): Playwright 已初始化。")
 
     async def close_browser(self):
         if self.page and self.context:
-            await BrowserManager.save_session(self.context, self.page, self.page.url)
+            await BrowserManager.save_session(CONTEXT_ID)
             await self.page.close()
-            await self.context.close()
             self.page = None
-            self.context = None
 
     def get_ext(self):
         return "ts"

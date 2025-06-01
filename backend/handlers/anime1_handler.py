@@ -1,4 +1,5 @@
 print("[DEBUG] anime1_handler.py 已 import")
+from configparser import NoOptionError
 import os
 import re
 import requests
@@ -21,22 +22,20 @@ from handlers.base_handler import BrowserManager
 
 @register_handler(r"^https?:\/\/(?:www\.)?anime1\.me.*")
 class Anime1Handler(StreamHandler):
+    CONTEXT_ID = "anime1"
     def __init__(self):
         super().__init__()
         print("[DEBUG] Anime1Handler.__init__(): 初始化 Handler")
-        self.page = None
-        self.context = None
+        self.page = NoOptionError
 
     async def init_browser(self, target_url: str):
-        self.page, self.context = await BrowserManager.new_page(target_url)
+        self.page = await BrowserManager.new_page(CONTEXT_ID, target_url)
 
     async def close_browser(self):
         if self.page and self.context:
-            await BrowserManager.save_session(self.context, self.page, self.page.url)
+            await BrowserManager.save_session(CONTEXT_ID)
             await self.page.close()
-            await self.context.close()
             self.page = None
-            self.context = None
 
     async def get_episode_urls_async(self, category_url: str) -> list[str]:
         print(f"[DEBUG] get_episode_urls_async() called with category_url = {category_url}")
